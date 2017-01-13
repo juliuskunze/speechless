@@ -1,19 +1,19 @@
 import math
 from enum import Enum
 from pathlib import Path
+from textwrap import wrap
 from typing import Any
 
 import librosa
 import matplotlib.pyplot as plt
 import numpy as np
 from lazy import lazy
-from matplotlib import ticker
 
 
 class SpectrogramType(Enum):
     power = "power"
     amplitude = "amplitude"
-    decibel = "power level"
+    power_level = "power level"
 
 
 class LabeledExample:
@@ -55,18 +55,18 @@ class LabeledExample:
         plt.plot(sound)
         plt.show()
 
-    def show_spectrogram(self, type: SpectrogramType = SpectrogramType.power):
-        self.prepare_spectrogram_plot(type.value)
+    def show_spectrogram(self, type: SpectrogramType = SpectrogramType.power_level):
+        self.prepare_spectrogram_plot(type)
         plt.show()
 
-    def save_spectrogram(self, target_directory: Path, type: SpectrogramType = SpectrogramType.power) -> Path:
+    def save_spectrogram(self, target_directory: Path, type: SpectrogramType = SpectrogramType.power_level) -> Path:
         self.prepare_spectrogram_plot(type)
-        plt.savefig(str(Path(target_directory, "{}_spectrogram.png".format(type.value))))
+        plt.savefig(str(Path(target_directory, "{}_{}_spectrogram.png".format(self.id, type.value))))
 
     def highest_detectable_frequency(self):
         return self.sample_rate / 2
 
-    def lowest_detectable_frequency(self):
+    def frequency_step(self):
         return self.sample_rate / self.fourier_window_length
 
     def duration_in_s(self):
@@ -77,8 +77,10 @@ class LabeledExample:
             return self.power_spectrogram
         if type == SpectrogramType.amplitude:
             return self.amplitude_spectrogram
-        if type == SpectrogramType.decibel:
-            return self.decibel_spectrogram
+        if type == SpectrogramType.power_level:
+            return self.power_level_spectrogram
+
+        raise ValueError(type)
 
     def frequency_count(self) -> int:
         return self.amplitude_spectrogram.shape[0]
@@ -86,27 +88,27 @@ class LabeledExample:
     def time_step_count(self) -> int:
         return self.amplitude_spectrogram.shape[1]
 
-    def prepare_spectrogram_plot(self, type: SpectrogramType = SpectrogramType.power):
+    def time_step_rate(self):
+        return self.time_step_count() / self.duration_in_s()
+
+    def prepare_spectrogram_plot(self, type: SpectrogramType = SpectrogramType.power_level):
         spectrogram = self.spectrogram_by_type(type)
         print(spectrogram.shape, self.raw_sound.shape, self.duration_in_s())
         fig, ax = plt.subplots(1, 1)
-        plt.title(type.value + " spectrogram for " + str(self))
-        plt.xlabel("time / s ({}Hz rate)".format(int(self.time_step_count() / self.duration_in_s())))
-        plt.gca().invert_yaxis()
-        plt.ylabel("frequency / Hz ({} levels total)".format(self.frequency_count()))
+        plt.title("\n".join(wrap(type.value + " spectrogram for " + str(self), width=100)))
+        plt.xlabel("time / s (time step every {}ms)".format(round(1000 / self.time_step_rate())))
+        plt.ylabel("frequency / Hz (level every {}Hz, {} total)".format(self.frequency_count(), self.frequency_step()))
         plt.imshow(
             spectrogram, cmap='gist_heat', origin='lower',
-            extent=[0, self.duration_in_s(), self.lowest_detectable_frequency(), self.highest_detectable_frequency()])
-        plt.yscale('log')
+            extent=[0, self.duration_in_s(), 0, self.highest_detectable_frequency()], aspect='auto')
+
         plt.colorbar(label=type.value + (
-        " (only proportional to physical scale)" if type != SpectrogramType.decibel else " / dB (not aligned to a particular base level)"))
-        ax.yaxis.set_major_locator(ticker.LogLocator(base=2.0))
-        ax.yaxis.set_major_formatter(ticker.FormatStrFormatter("%d"))
-        default_size = fig.get_size_inches()
-        fig.set_size_inches((int(1.25 * default_size[1] * 1920.0 / 1080), 1.25 * default_size[0]))
+            " (only proportional to physical scale)" if type != SpectrogramType.power_level else " / dB (not aligned to a particular base level)"))
+
+        fig.set_size_inches(19.20, 10.80)
 
     @lazy
-    def decibel_spectrogram(self):
+    def power_level_spectrogram(self):
         def log_and_trunc(x, min: float = -150) -> float:
             if x == 0:
                 return min
