@@ -8,12 +8,28 @@ import librosa
 import matplotlib.pyplot as plt
 import numpy as np
 from lazy import lazy
+from matplotlib import ticker
+from matplotlib.ticker import ScalarFormatter
+
+
+class SpectrogramFrequencyScale(Enum):
+    linear = "linear"
+    mel = "mel"
 
 
 class SpectrogramType(Enum):
     power = "power"
     amplitude = "amplitude"
     power_level = "power level"
+
+
+class ScalarFormatterWithUnit(ScalarFormatter):
+    def __init__(self, unit: str):
+        super().__init__()
+        self.unit = unit
+
+    def __call__(self, x, pos=None) -> str:
+        return super().__call__(x, pos) + self.unit
 
 
 class LabeledExample:
@@ -34,16 +50,25 @@ class LabeledExample:
         return raw_sound
 
     @lazy
-    def power_spectrogram(self):
-        return self.amplitude_spectrogram ** 2
+    def _power_spectrogram(self):
+        return self._amplitude_spectrogram ** 2
 
     @lazy
-    def amplitude_spectrogram(self):
-        return np.abs(self.complex_spectrogram)
+    def _amplitude_spectrogram(self):
+        return np.abs(self._complex_spectrogram)
 
     @lazy
-    def complex_spectrogram(self):
+    def _complex_spectrogram(self):
         return librosa.stft(y=self.raw_sound, n_fft=self.fourier_window_length, hop_length=self.hop_length)
+
+    @lazy
+    def mel_frequencies(self):
+        # according to librosa.filters.mel
+        return librosa.mel_frequencies(128 + 2, fmax=self.sample_rate / 2)
+
+    def convert_spectrogram_to_mel_scale(self, linear_frequency_spectrogram):
+        return np.dot(librosa.filters.mel(sr=self.sample_rate, n_fft=self.fourier_window_length),
+                      linear_frequency_spectrogram)
 
     def plot_raw_sound(self):
         self._plot_sound(self.raw_sound)
@@ -59,67 +84,87 @@ class LabeledExample:
         self.prepare_spectrogram_plot(type)
         plt.show()
 
-    def save_spectrogram(self, target_directory: Path, type: SpectrogramType = SpectrogramType.power_level) -> Path:
-        self.prepare_spectrogram_plot(type)
-        plt.savefig(str(Path(target_directory, "{}_{}_spectrogram.png".format(self.id, type.value))))
+    def save_spectrogram(self, target_directory: Path,
+                         type: SpectrogramType = SpectrogramType.power_level,
+                         frequency_scale: SpectrogramFrequencyScale = SpectrogramFrequencyScale.linear) -> Path:
+        self.prepare_spectrogram_plot(type, frequency_scale)
+        plt.savefig(str(Path(target_directory, "{}_{}{}_spectrogram.png".format(
+            self.id, "mel_" if frequency_scale == SpectrogramFrequencyScale.mel else "", type.value))))
 
     def highest_detectable_frequency(self):
         return self.sample_rate / 2
 
-    def frequency_step(self):
-        return self.sample_rate / self.fourier_window_length
-
     def duration_in_s(self):
         return self.raw_sound.shape[0] / self.sample_rate
 
-    def spectrogram_by_type(self, type: SpectrogramType):
-        if type == SpectrogramType.power:
-            return self.power_spectrogram
-        if type == SpectrogramType.amplitude:
-            return self.amplitude_spectrogram
-        if type == SpectrogramType.power_level:
-            return self.power_level_spectrogram
+    def spectrogram(self, type: SpectrogramType = SpectrogramType.power_level,
+                    frequency_scale: SpectrogramFrequencyScale = SpectrogramFrequencyScale.linear):
+        def spectrogram_by_type():
+            if type == SpectrogramType.power:
+                return self._power_spectrogram
+            if type == SpectrogramType.amplitude:
+                return self._amplitude_spectrogram
+            if type == SpectrogramType.power_level:
+                return self._power_level_from_power_spectrogram(self._power_spectrogram)
 
-        raise ValueError(type)
+            raise ValueError(type)
 
-    def frequency_count(self) -> int:
-        return self.amplitude_spectrogram.shape[0]
+        s = spectrogram_by_type()
+
+        return self.convert_spectrogram_to_mel_scale(s) if frequency_scale == SpectrogramFrequencyScale.mel else s
+
+    def frequency_count(self, spectrogram):
+        return spectrogram.shape[0]
 
     def time_step_count(self) -> int:
-        return self.amplitude_spectrogram.shape[1]
+        return self.spectrogram().shape[1]
 
     def time_step_rate(self):
         return self.time_step_count() / self.duration_in_s()
 
-    def prepare_spectrogram_plot(self, type: SpectrogramType = SpectrogramType.power_level):
-        spectrogram = self.spectrogram_by_type(type)
+    def prepare_spectrogram_plot(self, type: SpectrogramType = SpectrogramType.power_level,
+                                 frequency_scale: SpectrogramFrequencyScale = SpectrogramFrequencyScale.linear):
+        spectrogram = self.spectrogram(type, frequency_scale=frequency_scale)
+
         print(spectrogram.shape, self.raw_sound.shape, self.duration_in_s())
-        fig, ax = plt.subplots(1, 1)
-        plt.title("\n".join(wrap(type.value + " spectrogram for " + str(self), width=100)))
-        plt.xlabel("time / s (time step every {}ms)".format(round(1000 / self.time_step_rate())))
-        plt.ylabel("frequency / Hz (level every {}Hz, {} total)".format(self.frequency_count(), self.frequency_step()))
+        figure, axes = plt.subplots(1, 1)
+        use_mel = frequency_scale == SpectrogramFrequencyScale.mel
+
+        plt.title("\n".join(wrap(
+            "{0}{1} spectrogram for {2}".format(("mel " if use_mel else ""), type.value, str(self)), width=100)))
+        plt.xlabel("time (data every {}ms)".format(round(1000 / self.time_step_rate())))
+        plt.ylabel("frequency (data evenly distributed on {} scale, {} total)".format(frequency_scale.value,
+                                                                                      self.frequency_count(
+                                                                                          spectrogram)))
         plt.imshow(
-            spectrogram, cmap='gist_heat', origin='lower',
-            extent=[0, self.duration_in_s(), 0, self.highest_detectable_frequency()], aspect='auto')
+            spectrogram, cmap='gist_heat', origin='lower', aspect='auto', extent=
+            [0, self.duration_in_s(),
+             librosa.hz_to_mel(self.mel_frequencies[0])[0] if use_mel else 0,
+             librosa.hz_to_mel(self.mel_frequencies[-1])[0] if use_mel else self.highest_detectable_frequency()])
 
-        plt.colorbar(label=type.value + (
-            " (only proportional to physical scale)" if type != SpectrogramType.power_level else " / dB (not aligned to a particular base level)"))
+        plt.colorbar(label="{} ({})".format(type.value,
+                                            "in{} dB, not aligned to a particular base level".format(
+                                                " something similar to" if use_mel else "") if type == SpectrogramType.power_level else "only proportional to physical scale"))
 
-        fig.set_size_inches(19.20, 10.80)
+        axes.xaxis.set_major_formatter(ScalarFormatterWithUnit("s"))
+        axes.yaxis.set_major_formatter(
+            ticker.FuncFormatter(lambda value, pos: "{}mel = {}Hz".format(int(value), int(
+                librosa.mel_to_hz(value)[0]))) if use_mel else ScalarFormatterWithUnit("Hz"))
+        figure.set_size_inches(19.20, 10.80)
 
-    @lazy
-    def power_level_spectrogram(self):
-        def log_and_trunc(x, min: float = -150) -> float:
+    @staticmethod
+    def _power_level_from_power_spectrogram(spectrogram):
+        def power_to_decibel(x, min_decibel: float = -150) -> float:
             if x == 0:
-                return min
+                return min_decibel
             l = 10 * math.log10(x)
-            return min if l < min else l
+            return min_decibel if l < min_decibel else l
 
-        return np.vectorize(log_and_trunc)(self.power_spectrogram)
+        return np.vectorize(power_to_decibel)(spectrogram)
 
     @lazy
     def reconstructed_sound_from_spectrogram(self):
-        return librosa.istft(self.complex_spectrogram, win_length=self.fourier_window_length,
+        return librosa.istft(self._complex_spectrogram, win_length=self.fourier_window_length,
                              hop_length=self.hop_length)
 
     def plot_reconstructed_sound_from_spectrogram(self):
