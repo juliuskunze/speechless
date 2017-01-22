@@ -1,4 +1,3 @@
-import os
 import tarfile
 import urllib.request
 from pathlib import Path
@@ -15,15 +14,17 @@ class CorpusProvider:
     def __init__(self, base_directory: Path, base_url: str = "http://www.openslr.org/resources/12/"):
         self.base_directory = base_directory
         self.base_url = base_url
-        os.makedirs(str(base_directory), exist_ok=True)
+        base_directory.mkdir(exist_ok=True)
 
         result_directory = self._download_and_unpack_if_not_yet_done(file_name_without_extension=test_clean)
         self.corpus_directory = Path(result_directory, test_clean)
         self.examples = self.get_examples()
 
     def get_examples(self) -> List[LabeledExample]:
-        files = [file for dir in self.corpus_directory.iterdir() for subdir in dir.iterdir() for file in
-                 subdir.iterdir()]
+        files = [file
+                 for dir in self.corpus_directory.iterdir() if dir.is_dir()
+                 for subdir in dir.iterdir() if subdir.is_dir()
+                 for file in subdir.iterdir() if file.is_file()]
         flac_files = [file for file in files if file.name.endswith(".flac")]
         label_files = [file for file in files if file.name.endswith(".txt")]
         labels_by_id = dict()
