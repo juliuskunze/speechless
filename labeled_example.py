@@ -155,6 +155,7 @@ class LabeledExample:
 
     @staticmethod
     def _power_level_from_power_spectrogram(spectrogram):
+        # default value for min_decibel found by experiment (all values except for 0s were above this bound)
         def power_to_decibel(x, min_decibel: float = -150) -> float:
             if x == 0:
                 return min_decibel
