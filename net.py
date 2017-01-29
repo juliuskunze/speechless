@@ -21,7 +21,10 @@ def wav2letter_net(
         border_mode: str = "same",
         output_activation: str = None
 ) -> Sequential:
-    """As described in https://arxiv.org/pdf/1609.03193v2.pdf"""
+    """As described in https://arxiv.org/pdf/1609.03193v2.pdf.
+     This function returns the net architecture of the predictive
+     part of the wav2letter archicture (without a loss operation).
+    """
 
     def convolution(name: str, filter_count: int, filter_length: int, striding: int = 1, activation: str = activation,
                     input_dim: int = None) -> Convolution1D:
@@ -58,7 +61,7 @@ def wav2letter_net(
         output_convolutions())
 
 
-def _wav2letter_with_ctc_cost(model: Sequential) -> Model:
+def _wav2letter_net_with_ctc_loss(model: Sequential) -> Model:
     input_batch = Input(name=InputNames.input_batch, batch_shape=model.input_shape)
     # TODO shape=[None], this may fail, replace by "absolute max string length"?
     label_batch = Input(name=InputNames.label_batch, shape=[None])
@@ -66,54 +69,53 @@ def _wav2letter_with_ctc_cost(model: Sequential) -> Model:
     label_lengths = Input(name=InputNames.label_lengths, shape=[1], dtype='int64')
     # Keras doesn't currently support loss funcs with extra parameters
     # so CTC loss is implemented in a lambda layer
-    y_pred = model(input_batch)
+    prediction_batch = model(input_batch)
 
-    loss_out = Lambda(_ctc_lambda, output_shape=(1,), name='ctc')(
-        [y_pred, label_batch, prediction_lengths, label_lengths])
-    return Model(input=[input_batch, label_batch, prediction_lengths, label_lengths], output=[loss_out])
+    losses = Lambda(_ctc_lambda, output_shape=(1,), name='ctc')(
+        [prediction_batch, label_batch, prediction_lengths, label_lengths])
+    return Model(input=[input_batch, label_batch, prediction_lengths, label_lengths], output=[losses])
 
 
 # the actual loss calc occurs here despite it not being an internal Keras loss function
 # no type hints here because the annotations cause an error in the Keras library
 def _ctc_lambda(args):
-    y_pred, label_batch, prediction_lengths, label_lengths = args
+    prediction_batch, label_batch, prediction_lengths, label_lengths = args
     # TODO check: the keras implementation takes the logarithm of the predictions (see keras.backend.ctc_batch_cost)
-    return backend.ctc_batch_cost(y_true=label_batch, y_pred=y_pred, input_length=prediction_lengths,
+    return backend.ctc_batch_cost(y_true=label_batch, y_pred=prediction_batch, input_length=prediction_lengths,
                                   label_length=label_lengths)
 
 
-def _wav2letter_compiled(model: Sequential) -> Model:
-    model = _wav2letter_with_ctc_cost(model)
+def _compiled_wav2letter_net_with_ctc_loss(model: Sequential) -> Model:
+    model = _wav2letter_net_with_ctc_loss(model)
 
     # TODO adjust parameters, "clipnorm seems to speeds up convergence"
     sgd = SGD(lr=0.02, decay=1e-6, momentum=0.9, nesterov=True, clipnorm=5)
 
     # the loss calc occurs elsewhere, so use a dummy lambda func for the loss
-    model.compile(
-        loss={'ctc': lambda y_true, y_pred: y_pred}, optimizer=sgd)
+    model.compile(loss={'ctc': lambda dummy_labels, losses: losses}, optimizer=sgd)
 
     return model
 
 
-def wav2letter_trained_on_batch(net: Sequential, spectrograms: List[ndarray], labels: List[str],
-                                tensor_board_log_directory: Path) -> Model:
-    net_with_loss = _wav2letter_compiled(net)
+def wav2letter_net_trained_on_batch(net: Sequential, spectrograms: List[ndarray], labels: List[str],
+                                    tensor_board_log_directory: Path) -> Model:
+    compiled_net_with_loss = _compiled_wav2letter_net_with_ctc_loss(net)
 
-    input_dictionary = _input_dictionary(spectrograms, labels)
+    training_input_dictionary = _training_input_dictionary(spectrograms, labels)
 
-    def test_function(input_batch: ndarray) -> ndarray:
+    input_batch = training_input_dictionary[InputNames.input_batch]
+
+    def get_prediction_batch(input_batch: ndarray = input_batch) -> ndarray:
         return backend.function(net.inputs, net.outputs)([input_batch])[0]
 
-    input_batch = input_dictionary[InputNames.input_batch]
-
     def print_decoded():
-        logits = test_function(input_batch)
-        print(decode_batch(logits))
+        prediction_batch = get_prediction_batch()
+        print(decode_prediction_batch(prediction_batch))
 
     print_decoded()
 
-    net_with_loss.fit(
-        x=input_dictionary, y=_dummy_outputs(batch_size=len(spectrograms)), batch_size=10, nb_epoch=100,
+    compiled_net_with_loss.fit(
+        x=training_input_dictionary, y=_dummy_labels(batch_size=len(spectrograms)), batch_size=10, nb_epoch=100,
         callbacks=[keras.callbacks.TensorBoard(log_dir=str(tensor_board_log_directory), write_images=True)])
 
     print_decoded()
@@ -128,34 +130,29 @@ class InputNames:
     label_lengths = "label_lenghts"
 
 
-def decode_batch(output_grapheme_batch: ndarray) -> List[str]:
+def decode_prediction_batch(prediction_batch: ndarray) -> List[str]:
     # TODO use beam search with a language model instead of best path.
-    ret = []
-
-    for i in range(output_grapheme_batch.shape[0]):
-        # todo validate effect of "2:"
-        ret.append(decode_graphemes(list(argmax(output_grapheme_batch[i], 1))))
-    return ret
+    return [decode_graphemes(list(argmax(prediction_batch[i], 1))) for i in range(prediction_batch.shape[0])]
 
 
-def decode_graphemes(graphemes: List[int]):
+def decode_graphemes(graphemes: List[int]) -> str:
     grouped_graphemes = [k for k, g in groupby(graphemes)]
     return decode_grouped_graphemes(grouped_graphemes)
 
 
 def decode_grouped_graphemes(grouped_graphemes: List[int]) -> str:
-    return "".join([decode_char(grapheme) for grapheme in grouped_graphemes])
+    return "".join([decode_grapheme(grapheme) for grapheme in grouped_graphemes])
 
 
 allowed_characters = list(string.ascii_uppercase + " '")
 allowed_character_count = len(allowed_characters)
-grapheme_by_character = dict((char, index) for index, char in enumerate(allowed_characters))
+graphemes_by_character = dict((char, index) for index, char in enumerate(allowed_characters))
 
 ctc_grapheme_set_size = len(allowed_characters) + 1
 ctc_blank = ctc_grapheme_set_size - 1  # ctc blank must be last (see Tensorflow's ctcloss documentation)
 
 
-def decode_char(grapheme: int) -> str:
+def decode_grapheme(grapheme: int) -> str:
     if grapheme in range(allowed_character_count):
         return allowed_characters[grapheme]
     elif grapheme == ctc_blank:
@@ -166,12 +163,12 @@ def decode_char(grapheme: int) -> str:
 
 def encode_char(label_char: chr) -> int:
     try:
-        return grapheme_by_character[label_char]
+        return graphemes_by_character[label_char]
     except:
         raise ValueError("Unexpected char: '{}'".format(label_char))
 
 
-def _input_dictionary(spectrograms: List[ndarray], labels: List[str]) -> dict:
+def _training_input_dictionary(spectrograms: List[ndarray], labels: List[str]) -> dict:
     """
     :param spectrograms: In shape (time, channels)
     :param labels:
@@ -183,7 +180,7 @@ def _input_dictionary(spectrograms: List[ndarray], labels: List[str]) -> dict:
 
     input_size_per_time_step = spectrograms[0].shape[1]
 
-    input_lengths = [x.shape[0] for x in spectrograms]
+    input_lengths = [spectrogram.shape[0] for spectrogram in spectrograms]
     # Because of the striding of 2 in the network, prediction have half as many time steps as the input
     # TODO hardcoding this is error-prone, make it dependent on the network architecture
     prediction_lengths = [s / 2 for s in input_lengths]
@@ -209,5 +206,6 @@ def encode(label: str) -> List[int]:
     return [encode_char(c) for c in label]
 
 
-def _dummy_outputs(batch_size: int) -> Dict[str, ndarray]:
-    return {'ctc': zeros([batch_size])}  # dummy data for dummy loss function
+# for dummy loss function
+def _dummy_labels(batch_size: int) -> Dict[str, ndarray]:
+    return {'ctc': zeros([batch_size])}

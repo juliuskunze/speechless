@@ -7,7 +7,7 @@ from numpy import *
 
 from corpus_provider import CorpusProvider
 from labeled_example import LabeledExample, SpectrogramFrequencyScale, SpectrogramType
-from net import wav2letter_net, wav2letter_trained_on_batch, ctc_grapheme_set_size
+from net import wav2letter_net, wav2letter_net_trained_on_batch, ctc_grapheme_set_size
 
 # not Path.home() for compatibility with Python 3.4
 base_directory = Path(os.path.expanduser('~'), "speechless-data")
@@ -29,44 +29,43 @@ def first_20_examples_sorted_by_length():
     return sorted(corpus.examples[:20], key=lambda x: len(x.label))
 
 
-def znormalize(array: ndarray) -> ndarray:
+def z_normalize(array: ndarray) -> ndarray:
     return (array - mean(array)) / std(array)
 
 
-def spectrograms(examples: List[LabeledExample]) -> List[ndarray]:
+def normalized_transposed_spectrograms(examples: List[LabeledExample]) -> List[ndarray]:
     """
 
     :param examples:
-    :return: Array with dimensions (time, frequencies), z-normalized
+    :return: Array with shape (time, frequencies), z-normalized
     """
-    return [znormalize(example.spectrogram(frequency_scale=SpectrogramFrequencyScale.mel).T) for example in examples]
+    return [z_normalize(example.spectrogram(frequency_scale=SpectrogramFrequencyScale.mel).T) for example in examples]
 
 
 def labels(examples: List[LabeledExample]):
     return [example.label for example in examples]
 
 
-examples = first_20_examples_sorted_by_length()
-
-
-def trained_wav2letter() -> Model:
-    s = spectrograms(examples)
+def trained_wav2letter(examples: List[LabeledExample]) -> Model:
+    s = normalized_transposed_spectrograms(examples)
 
     input_size_per_time_step = s[0].shape[1]
 
     # TODO check again whether output = softmax is necessary, as ctcloss states:
     # "This class performs the softmax operation for you"
     # (https://github.com/tensorflow/tensorflow/blob/master/tensorflow/g3doc/api_docs/python/functions_and_classes/shard0/tf.nn.ctc_loss.md)
+    # vs. softmax activation unit here:
+    # https://github.com/fchollet/keras/blob/883f74ca410e822fba266c4c344a09e364693951/examples/image_ocr.py#L456
     net = wav2letter_net(input_size_per_time_step=input_size_per_time_step,
                          output_grapheme_set_size=ctc_grapheme_set_size, output_activation="softmax")
     print(net.summary())
 
-    return wav2letter_trained_on_batch(net, spectrograms=s,
-                                       labels=labels(examples),
-                                       tensor_board_log_directory=tensorboard_log_directory_timestamped())
+    return wav2letter_net_trained_on_batch(net, spectrograms=s,
+                                           labels=labels(examples),
+                                           tensor_board_log_directory=tensorboard_log_directory_timestamped())
 
 
-def save_spectrograms(example: LabeledExample):
+def save_spectrograms_of_all_types(example: LabeledExample):
     for type in SpectrogramType:
         for frequency_scale in SpectrogramFrequencyScale:
             example.save_spectrogram(target_directory=base_spectrogram_directory, type=type,
@@ -83,4 +82,4 @@ def save_first_ten_spectrograms():
 # save_spectrograms(corpus.examples[0])
 # save_first_ten_spectrograms()
 
-model = trained_wav2letter()
+model = trained_wav2letter(first_20_examples_sorted_by_length())
