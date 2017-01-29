@@ -1,3 +1,4 @@
+import os
 import tarfile
 import urllib.request
 from pathlib import Path
@@ -14,7 +15,8 @@ class CorpusProvider:
     def __init__(self, base_directory: Path, base_url: str = "http://www.openslr.org/resources/12/"):
         self.base_directory = base_directory
         self.base_url = base_url
-        base_directory.mkdir(exist_ok=True)
+        # not Path.mkdir() for compatibility with Python 3.4
+        os.makedirs(str(base_directory), exist_ok=True)
 
         result_directory = self._download_and_unpack_if_not_yet_done(file_name_without_extension=test_clean)
         self.corpus_directory = Path(result_directory, test_clean)
@@ -67,8 +69,8 @@ class CorpusProvider:
         return members
 
     @staticmethod
-    def _download_if_not_yet_done(source_url, target_path: Path) -> Path:
+    def _download_if_not_yet_done(source_url: str, target_path: Path) -> Path:
         if not target_path.is_file():
-            urllib.request.urlretrieve(source_url, target_path)
+            urllib.request.urlretrieve(source_url, str(target_path))
 
         return target_path
