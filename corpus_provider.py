@@ -1,6 +1,6 @@
-import os
 import tarfile
 import urllib.request
+from os import makedirs
 from pathlib import Path
 from tarfile import *
 from typing import List
@@ -16,7 +16,7 @@ class CorpusProvider:
         self.base_directory = base_directory
         self.base_url = base_url
         # not Path.mkdir() for compatibility with Python 3.4
-        os.makedirs(str(base_directory), exist_ok=True)
+        makedirs(str(base_directory), exist_ok=True)
 
         result_directory = self._download_and_unpack_if_not_yet_done(file_name_without_extension=test_clean)
         self.corpus_directory = Path(result_directory, test_clean)

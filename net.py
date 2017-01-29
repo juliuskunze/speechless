@@ -1,7 +1,7 @@
 import string
 from itertools import *
 from pathlib import Path
-from typing import List, Dict
+from typing import List
 
 import keras
 from keras import backend
@@ -67,16 +67,15 @@ def _wav2letter_net_with_ctc_loss(model: Sequential) -> Model:
     label_batch = Input(name=InputNames.label_batch, shape=[None])
     prediction_lengths = Input(name=InputNames.prediction_lengths, shape=[1], dtype='int64')
     label_lengths = Input(name=InputNames.label_lengths, shape=[1], dtype='int64')
-    # Keras doesn't currently support loss funcs with extra parameters
-    # so CTC loss is implemented in a lambda layer
     prediction_batch = model(input_batch)
 
+    # Keras doesn't currently support loss funcs with extra parameters
+    # so CTC loss is implemented in a lambda layer
+    # the actual loss calc occurs here despite it not being an internal Keras loss function
     losses = Lambda(_ctc_lambda, output_shape=(1,), name='ctc')(
         [prediction_batch, label_batch, prediction_lengths, label_lengths])
     return Model(input=[input_batch, label_batch, prediction_lengths, label_lengths], output=[losses])
 
-
-# the actual loss calc occurs here despite it not being an internal Keras loss function
 # no type hints here because the annotations cause an error in the Keras library
 def _ctc_lambda(args):
     prediction_batch, label_batch, prediction_lengths, label_lengths = args
@@ -91,8 +90,9 @@ def _compiled_wav2letter_net_with_ctc_loss(model: Sequential) -> Model:
     # TODO adjust parameters, "clipnorm seems to speeds up convergence"
     sgd = SGD(lr=0.02, decay=1e-6, momentum=0.9, nesterov=True, clipnorm=5)
 
-    # the loss calc occurs elsewhere, so use a dummy lambda func for the loss
-    model.compile(loss={'ctc': lambda dummy_labels, losses: losses}, optimizer=sgd)
+    # the loss calc occurs in the ctc layer defined in the _wav2letter_net_with_ctc_loss net,
+    # we just pass through the results here in this dummy loss function:
+    model.compile(loss=lambda dummy_labels, losses_from_ctc: losses_from_ctc, optimizer=sgd)
 
     return model
 
@@ -109,13 +109,15 @@ def wav2letter_net_trained_on_batch(net: Sequential, spectrograms: List[ndarray]
         return backend.function(net.inputs, net.outputs)([input_batch])[0]
 
     def print_decoded():
-        prediction_batch = get_prediction_batch()
-        print(decode_prediction_batch(prediction_batch))
+        print(decode_prediction_batch(get_prediction_batch()))
 
     print_decoded()
 
+    batch_size = len(spectrograms)
+    dummy_labels_for_dummy_loss_function = zeros((batch_size,))
+
     compiled_net_with_loss.fit(
-        x=training_input_dictionary, y=_dummy_labels(batch_size=len(spectrograms)), batch_size=10, nb_epoch=100,
+        x=training_input_dictionary, y=dummy_labels_for_dummy_loss_function, batch_size=10, nb_epoch=100,
         callbacks=[keras.callbacks.TensorBoard(log_dir=str(tensor_board_log_directory), write_images=True)])
 
     print_decoded()
@@ -142,6 +144,10 @@ def decode_graphemes(graphemes: List[int]) -> str:
 
 def decode_grouped_graphemes(grouped_graphemes: List[int]) -> str:
     return "".join([decode_grapheme(grapheme) for grapheme in grouped_graphemes])
+
+
+def encode(label: str) -> List[int]:
+    return [encode_char(c) for c in label]
 
 
 allowed_characters = list(string.ascii_uppercase + " '")
@@ -200,12 +206,3 @@ def _training_input_dictionary(spectrograms: List[ndarray], labels: List[str]) -
         InputNames.prediction_lengths: reshape(array(prediction_lengths), (batch_size, 1)),
         InputNames.label_lengths: reshape(array(label_lengths), (batch_size, 1))
     }
-
-
-def encode(label: str) -> List[int]:
-    return [encode_char(c) for c in label]
-
-
-# for dummy loss function
-def _dummy_labels(batch_size: int) -> Dict[str, ndarray]:
-    return {'ctc': zeros([batch_size])}

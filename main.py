@@ -1,4 +1,5 @@
 import time
+from os import makedirs, path
 from pathlib import Path
 from typing import List
 
@@ -10,11 +11,11 @@ from labeled_example import LabeledExample, SpectrogramFrequencyScale, Spectrogr
 from net import wav2letter_net, wav2letter_net_trained_on_batch, ctc_grapheme_set_size
 
 # not Path.home() for compatibility with Python 3.4
-base_directory = Path(os.path.expanduser('~'), "speechless-data")
+base_directory = Path(path.expanduser('~'), "speechless-data")
 base_spectrogram_directory = Path(base_directory, "spectrograms")
 
 # not Path.mkdir() for compatibility with Python 3.4
-os.makedirs(str(base_spectrogram_directory), exist_ok=True)
+makedirs(str(base_spectrogram_directory), exist_ok=True)
 tensorboard_log_base_directory = Path(base_directory, 'logs')
 
 
