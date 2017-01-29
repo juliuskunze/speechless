@@ -3,14 +3,12 @@ from os import makedirs, path
 from pathlib import Path
 from typing import List
 
-from keras.engine import Model
 from numpy import *
 
 from corpus_provider import CorpusProvider
 from labeled_example import LabeledExample, SpectrogramFrequencyScale, SpectrogramType
-from net import wav2letter_net, wav2letter_net_trained_on_batch, ctc_grapheme_set_size
+from net import Wav2Letter
 
-# not Path.home() for compatibility with Python 3.4
 base_directory = Path(path.expanduser('~'), "speechless-data")
 base_spectrogram_directory = Path(base_directory, "spectrograms")
 
@@ -47,23 +45,17 @@ def labels(examples: List[LabeledExample]):
     return [example.label for example in examples]
 
 
-def trained_wav2letter(examples: List[LabeledExample]) -> Model:
-    s = normalized_transposed_spectrograms(examples)
-
-    input_size_per_time_step = s[0].shape[1]
+def train_wav2letter(examples: List[LabeledExample]):
+    spectrograms = normalized_transposed_spectrograms(examples)
 
     # TODO check again whether output = softmax is necessary, as ctcloss states:
     # "This class performs the softmax operation for you"
     # (https://github.com/tensorflow/tensorflow/blob/master/tensorflow/g3doc/api_docs/python/functions_and_classes/shard0/tf.nn.ctc_loss.md)
     # vs. softmax activation unit here:
     # https://github.com/fchollet/keras/blob/883f74ca410e822fba266c4c344a09e364693951/examples/image_ocr.py#L456
-    net = wav2letter_net(input_size_per_time_step=input_size_per_time_step,
-                         output_grapheme_set_size=ctc_grapheme_set_size, output_activation="softmax")
-    print(net.summary())
-
-    return wav2letter_net_trained_on_batch(net, spectrograms=s,
-                                           labels=labels(examples),
-                                           tensor_board_log_directory=tensorboard_log_directory_timestamped())
+    wav2letter = Wav2Letter(input_size_per_time_step=spectrograms[0].shape[1], output_activation="softmax")
+    wav2letter.train(spectrograms=spectrograms, labels=labels(examples),
+                     tensor_board_log_directory=tensorboard_log_directory_timestamped())
 
 
 def save_spectrograms_of_all_types(example: LabeledExample):
@@ -83,4 +75,4 @@ def save_first_ten_spectrograms():
 # save_spectrograms(corpus.examples[0])
 # save_first_ten_spectrograms()
 
-model = trained_wav2letter(first_20_examples_sorted_by_length())
+model = train_wav2letter(first_20_examples_sorted_by_length())
