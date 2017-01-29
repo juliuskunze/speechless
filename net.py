@@ -16,13 +16,6 @@ from numpy import *
 
 
 class Wav2Letter:
-    allowed_characters = list(string.ascii_uppercase + " '")
-    allowed_character_count = len(allowed_characters)
-    graphemes_by_character = dict((char, index) for index, char in enumerate(allowed_characters))
-
-    ctc_grapheme_set_size = len(allowed_characters) + 1
-    ctc_blank = ctc_grapheme_set_size - 1  # ctc blank must be last (see Tensorflow's ctcloss documentation)
-
     class InputNames:
         input_batch = "input_batch"
         label_batch = "label_batch"
@@ -31,7 +24,7 @@ class Wav2Letter:
 
     def __init__(self,
                  input_size_per_time_step: int,
-                 output_grapheme_set_size: int = ctc_grapheme_set_size,
+                 allowed_characters: List[chr] = list(string.ascii_uppercase + " '"),
                  use_raw_wave_input: bool = False,
                  activation: str = "relu",
                  output_activation: str = None):
@@ -39,8 +32,13 @@ class Wav2Letter:
         self.output_activation = output_activation
         self.activation = activation
         self.use_raw_wave_input = use_raw_wave_input
-        self.output_grapheme_set_size = output_grapheme_set_size
         self.input_size_per_time_step = input_size_per_time_step
+
+        self.allowed_characters = allowed_characters
+        self.output_grapheme_set_size = len(allowed_characters) + 1
+        self.allowed_character_count = len(allowed_characters)
+        self.graphemes_by_character = dict((char, index) for index, char in enumerate(allowed_characters))
+        self.ctc_blank = self.output_grapheme_set_size - 1  # ctc blank must be last (see Tensorflow's ctcloss documentation)
 
     @lazy
     def prediction_net(self) -> Sequential:
@@ -86,7 +84,7 @@ class Wav2Letter:
 
     @lazy
     def input_to_prediction_length_ratio(self):
-        """ Returns which factor shorter the output is compared to the input caused by striding."""
+        """Returns which factor shorter the output is compared to the input caused by striding."""
         return reduce(lambda x, y: x * y, [layer.subsample_length for layer in self.prediction_net.layers], 1)
 
     def prediction_batch(self, input_batch: ndarray) -> ndarray:
@@ -95,24 +93,21 @@ class Wav2Letter:
     @lazy
     def net_with_ctc_loss(self) -> Model:
         input_batch = Input(name=Wav2Letter.InputNames.input_batch, batch_shape=self.prediction_net.input_shape)
-        # TODO shape=[None], this may fail, replace by "absolute max string length"?
-        label_batch = Input(name=Wav2Letter.InputNames.label_batch, shape=[None])
-        prediction_lengths = Input(name=Wav2Letter.InputNames.prediction_lengths, shape=[1], dtype='int64')
-        label_lengths = Input(name=Wav2Letter.InputNames.label_lengths, shape=[1], dtype='int64')
+        label_batch = Input(name=Wav2Letter.InputNames.label_batch, shape=(None,))
+        prediction_lengths = Input(name=Wav2Letter.InputNames.prediction_lengths, shape=(1,), dtype='int64')
+        label_lengths = Input(name=Wav2Letter.InputNames.label_lengths, shape=(1,), dtype='int64')
         prediction_batch = self.prediction_net(input_batch)
 
-        # Keras doesn't currently support loss funcs with extra parameters
-        # so CTC loss is implemented in a lambda layer
+        # Keras doesn't currently support loss funcs with extra parameters so CTC loss is implemented in a lambda layer
         # the actual loss calc occurs here despite it not being an internal Keras loss function
         losses = Lambda(Wav2Letter._ctc_lambda, output_shape=(1,), name='ctc')(
             [prediction_batch, label_batch, prediction_lengths, label_lengths])
         return Model(input=[input_batch, label_batch, prediction_lengths, label_lengths], output=[losses])
 
-    # no type hints here because the annotations cause an error in the Keras library
+    # no type hints here because the annotations cause an error in the Keras library:
     @staticmethod
     def _ctc_lambda(args):
         prediction_batch, label_batch, prediction_lengths, label_lengths = args
-        # TODO check: the keras implementation takes the logarithm of the predictions (see keras.backend.ctc_batch_cost)
         return backend.ctc_batch_cost(y_true=label_batch, y_pred=prediction_batch, input_length=prediction_lengths,
                                       label_length=label_lengths)
 
@@ -120,8 +115,7 @@ class Wav2Letter:
         # TODO adjust parameters, "clipnorm seems to speeds up convergence"
         sgd = SGD(lr=0.02, decay=1e-6, momentum=0.9, nesterov=True, clipnorm=5)
 
-        # the loss calc occurs in the ctc layer defined in the _wav2letter_net_with_ctc_loss net,
-        # we just pass through the results here in this dummy loss function:
+        # the loss calc occurs in the ctc layer of the net, here we just pass through the results:
         self.net_with_ctc_loss.compile(loss=lambda dummy_labels, losses_from_ctc: losses_from_ctc, optimizer=sgd)
 
     def predict(self, input_batch: ndarray) -> List[str]:
@@ -148,38 +142,32 @@ class Wav2Letter:
 
         print_decoded()
 
-    @classmethod
-    def decode_prediction_batch(cls, prediction_batch: ndarray) -> List[str]:
+    def decode_prediction_batch(self, prediction_batch: ndarray) -> List[str]:
         # TODO use beam search with a language model instead of best path.
-        return [Wav2Letter.decode_graphemes(list(argmax(prediction_batch[i], 1))) for i in
+        return [self.decode_graphemes(list(argmax(prediction_batch[i], 1))) for i in
                 range(prediction_batch.shape[0])]
 
-    @classmethod
-    def decode_graphemes(cls, graphemes: List[int]) -> str:
+    def decode_graphemes(self, graphemes: List[int]) -> str:
         grouped_graphemes = [k for k, g in groupby(graphemes)]
-        return cls.decode_grouped_graphemes(grouped_graphemes)
+        return self.decode_grouped_graphemes(grouped_graphemes)
 
-    @classmethod
-    def decode_grouped_graphemes(cls, grouped_graphemes: List[int]) -> str:
-        return "".join([cls.decode_grapheme(grapheme) for grapheme in grouped_graphemes])
+    def decode_grouped_graphemes(self, grouped_graphemes: List[int]) -> str:
+        return "".join([self.decode_grapheme(grapheme) for grapheme in grouped_graphemes])
 
-    @classmethod
-    def encode(cls, label: str) -> List[int]:
-        return [cls.encode_char(c) for c in label]
+    def encode(self, label: str) -> List[int]:
+        return [self.encode_char(c) for c in label]
 
-    @classmethod
-    def decode_grapheme(cls, grapheme: int) -> str:
-        if grapheme in range(Wav2Letter.allowed_character_count):
-            return cls.allowed_characters[grapheme]
-        elif grapheme == cls.ctc_blank:
+    def decode_grapheme(self, grapheme: int) -> str:
+        if grapheme in range(self.allowed_character_count):
+            return self.allowed_characters[grapheme]
+        elif grapheme == self.ctc_blank:
             return ""
         else:
             raise ValueError("Unexpected grapheme: '{}'".format(grapheme))
 
-    @classmethod
-    def encode_char(cls, label_char: chr) -> int:
+    def encode_char(self, label_char: chr) -> int:
         try:
-            return cls.graphemes_by_character[label_char]
+            return self.graphemes_by_character[label_char]
         except:
             raise ValueError("Unexpected char: '{}'".format(label_char))
 
@@ -204,7 +192,7 @@ class Wav2Letter:
         label_lengths = [len(label) for label in labels]
         label_batch = -ones((batch_size, max(label_lengths)))
         for index, label in enumerate(labels):
-            label_batch[index, :len(label)] = array(Wav2Letter.encode(label))
+            label_batch[index, :len(label)] = array(self.encode(label))
 
         print(input_batch.shape, label_batch.shape, input_lengths, label_lengths)
         return {
