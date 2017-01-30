@@ -10,12 +10,14 @@ from keras.engine import Input
 from keras.engine import Model
 from keras.layers import Convolution1D, Lambda
 from keras.models import Sequential
-from keras.optimizers import SGD
+from keras.optimizers import SGD, Optimizer
 from lazy import lazy
 from numpy import *
 
 
 class Wav2Letter:
+    """Speech-recognition network based on wav2letter (https://arxiv.org/pdf/1609.03193v2.pdf)."""
+
     class InputNames:
         input_batch = "input_batch"
         label_batch = "label_batch"
@@ -27,7 +29,9 @@ class Wav2Letter:
                  allowed_characters: List[chr] = list(string.ascii_uppercase + " '"),
                  use_raw_wave_input: bool = False,
                  activation: str = "relu",
-                 output_activation: str = None):
+                 output_activation: str = None,
+                 # TODO adjust parameters, "clipnorm seems to speeds up convergence"
+                 optimizer: Optimizer = SGD(lr=0.02, decay=1e-6, momentum=0.9, nesterov=True, clipnorm=5)):
 
         self.output_activation = output_activation
         self.activation = activation
@@ -39,12 +43,13 @@ class Wav2Letter:
         self.allowed_character_count = len(allowed_characters)
         self.graphemes_by_character = dict((char, index) for index, char in enumerate(allowed_characters))
         self.ctc_blank = self.output_grapheme_set_size - 1  # ctc blank must be last (see Tensorflow's ctcloss documentation)
+        self.optimizer = optimizer
 
     @lazy
-    def prediction_net(self) -> Sequential:
-        """As described in https://arxiv.org/pdf/1609.03193v2.pdf.
-         This function returns the net architecture of the predictive
-         part of the wav2letter architecture (without a loss operation).
+    def predictive_net(self) -> Sequential:
+        """Returns the part of the net that predicts grapheme probabilities given a spectrogram.
+         A loss operation is not contained.
+         As described here: https://arxiv.org/pdf/1609.03193v2.pdf
         """
 
         def convolution(name: str, filter_count: int, filter_length: int, striding: int = 1,
@@ -85,62 +90,64 @@ class Wav2Letter:
     @lazy
     def input_to_prediction_length_ratio(self):
         """Returns which factor shorter the output is compared to the input caused by striding."""
-        return reduce(lambda x, y: x * y, [layer.subsample_length for layer in self.prediction_net.layers], 1)
+        return reduce(lambda x, y: x * y, [layer.subsample_length for layer in self.predictive_net.layers], 1)
 
     def prediction_batch(self, input_batch: ndarray) -> ndarray:
-        return backend.function(self.prediction_net.inputs, self.prediction_net.outputs)([input_batch])[0]
+        """Predicts a grapheme probability batch given a spectrogram batch, employing the predictive network."""
+        return backend.function(self.predictive_net.inputs, self.predictive_net.outputs)([input_batch])[0]
 
     @lazy
-    def net_with_ctc_loss(self) -> Model:
-        input_batch = Input(name=Wav2Letter.InputNames.input_batch, batch_shape=self.prediction_net.input_shape)
+    def loss_net(self) -> Model:
+        """Returns the network that yields a loss given both input spectrograms and labels. Used for training."""
+        input_batch = Input(name=Wav2Letter.InputNames.input_batch, batch_shape=self.predictive_net.input_shape)
         label_batch = Input(name=Wav2Letter.InputNames.label_batch, shape=(None,))
         prediction_lengths = Input(name=Wav2Letter.InputNames.prediction_lengths, shape=(1,), dtype='int64')
         label_lengths = Input(name=Wav2Letter.InputNames.label_lengths, shape=(1,), dtype='int64')
-        prediction_batch = self.prediction_net(input_batch)
 
-        # Keras doesn't currently support loss funcs with extra parameters so CTC loss is implemented in a lambda layer
-        # the actual loss calc occurs here despite it not being an internal Keras loss function
-        losses = Lambda(Wav2Letter._ctc_lambda, output_shape=(1,), name='ctc')(
-            [prediction_batch, label_batch, prediction_lengths, label_lengths])
-        return Model(input=[input_batch, label_batch, prediction_lengths, label_lengths], output=[losses])
+        # Since Keras doesn't currently support loss functions with extra parameters,
+        # we define a custom lambda layer yielding one single real-valued CTC loss given the grapheme probabilities:
+        loss_layer = Lambda(Wav2Letter._ctc_lambda, name='ctc_loss', output_shape=(1,))
 
-    # no type hints here because the annotations cause an error in the Keras library:
+        # This loss layer is placed atop the predictive network and provided with additional arguments,
+        # namely the label batch and prediction/label sequence lengths:
+        loss = loss_layer([self.predictive_net(input_batch), label_batch, prediction_lengths, label_lengths])
+
+        loss_net = Model(input=[input_batch, label_batch, prediction_lengths, label_lengths], output=[loss])
+        # Since loss is already calculated in the last layer of the net, we just pass through the results here.
+        # The loss dummy labels have to be given to satify the Keras API.
+        loss_net.compile(loss=lambda dummy_labels, ctc_loss: ctc_loss, optimizer=self.optimizer)
+        return loss_net
+
+    # No type hints here because the annotations cause an error in the Keras library:
     @staticmethod
     def _ctc_lambda(args):
         prediction_batch, label_batch, prediction_lengths, label_lengths = args
         return backend.ctc_batch_cost(y_true=label_batch, y_pred=prediction_batch, input_length=prediction_lengths,
                                       label_length=label_lengths)
 
-    def _compile(self):
-        # TODO adjust parameters, "clipnorm seems to speeds up convergence"
-        sgd = SGD(lr=0.02, decay=1e-6, momentum=0.9, nesterov=True, clipnorm=5)
-
-        # the loss calc occurs in the ctc layer of the net, here we just pass through the results:
-        self.net_with_ctc_loss.compile(loss=lambda dummy_labels, losses_from_ctc: losses_from_ctc, optimizer=sgd)
-
     def predict(self, input_batch: ndarray) -> List[str]:
         return self.decode_prediction_batch(self.prediction_batch(input_batch))
 
     def train(self, spectrograms: List[ndarray], labels: List[str], tensor_board_log_directory: Path):
-        self._compile()
-
         training_input_dictionary = self._training_input_dictionary(spectrograms, labels)
 
         input_batch = training_input_dictionary[Wav2Letter.InputNames.input_batch]
 
-        def print_decoded():
-            print(self.predict(input_batch))
+        def print_expectations_vs_prediction():
+            print("\n".join(
+                'Expected:  "{}"\nPredicted: "{}"'.format(expected.lower(), predicted.lower()) for predicted, expected
+                in zip(self.predict(input_batch), labels)))
 
-        print_decoded()
+        print_expectations_vs_prediction()
 
         batch_size = len(spectrograms)
         dummy_labels_for_dummy_loss_function = zeros((batch_size,))
 
-        self.net_with_ctc_loss.fit(
+        self.loss_net.fit(
             x=training_input_dictionary, y=dummy_labels_for_dummy_loss_function, batch_size=10, nb_epoch=100,
             callbacks=[keras.callbacks.TensorBoard(log_dir=str(tensor_board_log_directory), write_images=True)])
 
-        print_decoded()
+        print_expectations_vs_prediction()
 
     def decode_prediction_batch(self, prediction_batch: ndarray) -> List[str]:
         # TODO use beam search with a language model instead of best path.
