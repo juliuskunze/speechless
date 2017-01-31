@@ -30,8 +30,7 @@ class Wav2Letter:
                  use_raw_wave_input: bool = False,
                  activation: str = "relu",
                  output_activation: str = None,
-                 # TODO adjust parameters, "clipnorm seems to speeds up convergence"
-                 optimizer: Optimizer = SGD(lr=0.02, decay=1e-6, momentum=0.9, nesterov=True, clipnorm=5)):
+                 optimizer: Optimizer = SGD(lr=1e-3, momentum=0.9, clipnorm=5)):
 
         self.output_activation = output_activation
         self.activation = activation
