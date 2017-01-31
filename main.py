@@ -9,19 +9,19 @@ from corpus_provider import CorpusProvider
 from labeled_example import LabeledExample, SpectrogramFrequencyScale, SpectrogramType
 from net import Wav2Letter
 
-base_directory = Path(path.expanduser('~'), "speechless-data")
-base_spectrogram_directory = Path(base_directory, "spectrograms")
+base_directory = Path(path.expanduser('~')) / "speechless-data"
+base_spectrogram_directory = base_directory / "spectrograms"
 
 # not Path.mkdir() for compatibility with Python 3.4
 makedirs(str(base_spectrogram_directory), exist_ok=True)
-tensorboard_log_base_directory = Path(base_directory, 'logs')
+tensorboard_log_base_directory = base_directory / "logs"
 
 
 def tensorboard_log_directory_timestamped() -> Path:
     return Path(tensorboard_log_base_directory, time.strftime("%Y%m%d-%H%M%S"))
 
 
-corpus = CorpusProvider(Path(base_directory, "corpus"))
+corpus = CorpusProvider(base_directory / "corpus")
 
 
 def first_20_examples_sorted_by_length():

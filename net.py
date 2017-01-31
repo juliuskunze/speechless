@@ -135,8 +135,8 @@ class Wav2Letter:
 
         def print_expectations_vs_prediction():
             print("\n".join(
-                'Expected:  "{}"\nPredicted: "{}"'.format(expected.lower(), predicted.lower()) for predicted, expected
-                in zip(self.predict(input_batch), labels)))
+                'Expected:  "{}"\nPredicted: "{}"'.format(expected.lower(), predicted.lower()) for expected, predicted
+                in zip(labels, self.predict(input_batch))))
 
         print_expectations_vs_prediction()
 
@@ -145,9 +145,18 @@ class Wav2Letter:
 
         self.loss_net.fit(
             x=training_input_dictionary, y=dummy_labels_for_dummy_loss_function, batch_size=10, nb_epoch=100,
-            callbacks=[keras.callbacks.TensorBoard(log_dir=str(tensor_board_log_directory), write_images=True)])
+            callbacks=self.create_callbacks(test_input_batch=input_batch,
+                                            tensor_board_log_directory=tensor_board_log_directory))
 
         print_expectations_vs_prediction()
+
+    def create_callbacks(self, test_input_batch: ndarray, tensor_board_log_directory: Path):
+        class ComparisonCallback(keras.callbacks.Callback):
+            def on_epoch_end(self2, epoch, logs=()):
+                print(self.predict(input_batch=test_input_batch))
+
+        tensorboard = keras.callbacks.TensorBoard(log_dir=str(tensor_board_log_directory), write_images=True)
+        return [tensorboard, ComparisonCallback()]
 
     def decode_prediction_batch(self, prediction_batch: ndarray) -> List[str]:
         # TODO use beam search with a language model instead of best path.

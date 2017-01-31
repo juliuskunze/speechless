@@ -19,14 +19,14 @@ class CorpusProvider:
         makedirs(str(base_directory), exist_ok=True)
 
         result_directory = self._download_and_unpack_if_not_yet_done(file_name_without_extension=test_clean)
-        self.corpus_directory = Path(result_directory, test_clean)
+        self.corpus_directory = result_directory / test_clean
         self.examples = self.get_examples()
 
     def get_examples(self) -> List[LabeledExample]:
         files = [file
-                 for dir in self.corpus_directory.iterdir() if dir.is_dir()
-                 for subdir in dir.iterdir() if subdir.is_dir()
-                 for file in subdir.iterdir() if file.is_file()]
+                 for directory in self.corpus_directory.iterdir() if directory.is_dir()
+                 for subdirectory in directory.iterdir() if subdirectory.is_dir()
+                 for file in subdirectory.iterdir() if file.is_file()]
         flac_files = [file for file in files if file.name.endswith(".flac")]
         label_files = [file for file in files if file.name.endswith(".txt")]
         labels_by_id = dict()
