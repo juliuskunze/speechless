@@ -142,17 +142,22 @@ class Wav2Letter:
         batch_size = len(spectrograms)
         dummy_labels_for_dummy_loss_function = zeros((batch_size,))
 
-        self.loss_net.fit(
-            x=training_input_dictionary, y=dummy_labels_for_dummy_loss_function, batch_size=10, nb_epoch=100,
-            callbacks=self.create_callbacks(test_input_batch=input_batch,
-                                            tensor_board_log_directory=tensor_board_log_directory))
+        def generate_data():
+            while True:
+                yield (training_input_dictionary, dummy_labels_for_dummy_loss_function)
+
+        self.loss_net.fit_generator(generate_data(), samples_per_epoch=20, nb_epoch=500000000000000,
+                                    callbacks=self.create_callbacks(
+                                        test_input_batch=input_batch,
+                                        tensor_board_log_directory=tensor_board_log_directory))
 
         print_expectations_vs_prediction()
 
     def create_callbacks(self, test_input_batch: ndarray, tensor_board_log_directory: Path):
         class ComparisonCallback(keras.callbacks.Callback):
             def on_epoch_end(self2, epoch, logs=()):
-                print(self.predict(input_batch=test_input_batch))
+                if epoch % 100 == 0:
+                    print(self.predict(input_batch=test_input_batch))
 
         tensorboard = keras.callbacks.TensorBoard(log_dir=str(tensor_board_log_directory), write_images=True)
         return [tensorboard, ComparisonCallback()]
