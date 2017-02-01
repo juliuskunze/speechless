@@ -1,8 +1,9 @@
 import string
 from functools import reduce
 from itertools import *
+from os import makedirs
 from pathlib import Path
-from typing import List
+from typing import List, Callable
 
 import keras
 from keras import backend
@@ -127,13 +128,17 @@ class Wav2Letter:
     def predict(self, input_batch: ndarray) -> List[str]:
         return self.decode_prediction_batch(self.prediction_batch(input_batch))
 
-    def train(self, spectrograms: List[ndarray], labels: List[str], tensor_board_log_directory: Path):
+    def train(self, spectrograms: List[ndarray], labels: List[str], tensor_board_log_directory: Path,
+              net_directory: Path):
+        # not Path.mkdir() for compatibility with Python 3.4
+        makedirs(str(net_directory), exist_ok=True)
+
         training_input_dictionary = self._training_input_dictionary(spectrograms, labels)
 
         input_batch = training_input_dictionary[Wav2Letter.InputNames.input_batch]
 
         def print_expectations_vs_prediction():
-            print("\n".join(
+            print("\n\n".join(
                 'Expected:  "{}"\nPredicted: "{}"'.format(expected.lower(), predicted.lower()) for expected, predicted
                 in zip(labels, self.predict(input_batch))))
 
@@ -146,21 +151,25 @@ class Wav2Letter:
             while True:
                 yield (training_input_dictionary, dummy_labels_for_dummy_loss_function)
 
-        self.loss_net.fit_generator(generate_data(), samples_per_epoch=20, nb_epoch=500000000000000,
+        self.loss_net.fit_generator(generate_data(), samples_per_epoch=20, nb_epoch=100000000,
                                     callbacks=self.create_callbacks(
-                                        test_input_batch=input_batch,
-                                        tensor_board_log_directory=tensor_board_log_directory))
+                                        callback=print_expectations_vs_prediction,
+                                        tensor_board_log_directory=tensor_board_log_directory,
+                                        net_directory=net_directory))
 
-        print_expectations_vs_prediction()
+    def create_callbacks(self, callback: Callable[[], None], tensor_board_log_directory: Path, net_directory: Path,
+                         callback_step: int = 100, save_step: int = 10000) -> List[keras.callbacks.Callback]:
+        class CustomCallback(keras.callbacks.Callback):
+            def on_epoch_end(self_callback, epoch, logs=()):
+                if epoch % callback_step == 0:
+                    callback()
 
-    def create_callbacks(self, test_input_batch: ndarray, tensor_board_log_directory: Path):
-        class ComparisonCallback(keras.callbacks.Callback):
-            def on_epoch_end(self2, epoch, logs=()):
-                if epoch % 100 == 0:
-                    print(self.predict(input_batch=test_input_batch))
+                if epoch % save_step == 0:
+                    self.predictive_net.save(str(net_directory / "predictive-epoch{}.kerasnet".format(epoch)))
+                    self.loss_net.save(str(net_directory / "loss-epoch{}.kerasnet".format(epoch)))
 
         tensorboard = keras.callbacks.TensorBoard(log_dir=str(tensor_board_log_directory), write_images=True)
-        return [tensorboard, ComparisonCallback()]
+        return [tensorboard, CustomCallback()]
 
     def decode_prediction_batch(self, prediction_batch: ndarray) -> List[str]:
         # TODO use beam search with a language model instead of best path.

@@ -15,10 +15,11 @@ base_spectrogram_directory = base_directory / "spectrograms"
 # not Path.mkdir() for compatibility with Python 3.4
 makedirs(str(base_spectrogram_directory), exist_ok=True)
 tensorboard_log_base_directory = base_directory / "logs"
+nets_base_directory = base_directory / "nets"
 
 
-def tensorboard_log_directory_timestamped() -> Path:
-    return Path(tensorboard_log_base_directory, time.strftime("%Y%m%d-%H%M%S"))
+def timestamp() -> Path:
+    return time.strftime("%Y%m%d-%H%M%S")
 
 
 corpus = CorpusProvider(base_directory / "corpus")
@@ -57,9 +58,12 @@ def train_wav2letter(examples: List[LabeledExample]):
     # TODO also check: for some reason, the keras implementation takes the logarithm of the predictions
     # (see keras.backend.ctc_batch_cost)
 
-    wav2letter = Wav2Letter(input_size_per_time_step=spectrograms[0].shape[1], output_activation="softmax")
+    wav2letter = Wav2Letter(input_size_per_time_step=spectrograms[0].shape[1])
+    stamp = timestamp()
+
     wav2letter.train(spectrograms=spectrograms, labels=labels(examples),
-                     tensor_board_log_directory=tensorboard_log_directory_timestamped())
+                     tensor_board_log_directory=tensorboard_log_base_directory / stamp,
+                     net_directory=nets_base_directory / stamp)
 
 
 def save_spectrograms_of_all_types(example: LabeledExample):
