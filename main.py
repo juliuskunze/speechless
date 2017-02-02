@@ -3,6 +3,7 @@ from os import makedirs, path
 from pathlib import Path
 from typing import List
 
+from keras.optimizers import Adagrad
 from numpy import *
 
 from corpus_provider import CorpusProvider
@@ -18,7 +19,7 @@ tensorboard_log_base_directory = base_directory / "logs"
 nets_base_directory = base_directory / "nets"
 
 
-def timestamp() -> Path:
+def timestamp() -> str:
     return time.strftime("%Y%m%d-%H%M%S")
 
 
@@ -58,12 +59,12 @@ def train_wav2letter(examples: List[LabeledExample]):
     # TODO also check: for some reason, the keras implementation takes the logarithm of the predictions
     # (see keras.backend.ctc_batch_cost)
 
-    wav2letter = Wav2Letter(input_size_per_time_step=spectrograms[0].shape[1])
-    stamp = timestamp()
+    wav2letter = Wav2Letter(input_size_per_time_step=spectrograms[0].shape[1], optimizer=Adagrad(lr=1e-3))
+    name = timestamp() + "-adagrad"
 
     wav2letter.train(spectrograms=spectrograms, labels=labels(examples),
-                     tensor_board_log_directory=tensorboard_log_base_directory / stamp,
-                     net_directory=nets_base_directory / stamp)
+                     tensor_board_log_directory=tensorboard_log_base_directory / name,
+                     net_directory=nets_base_directory / name)
 
 
 def save_spectrograms_of_all_types(example: LabeledExample):
