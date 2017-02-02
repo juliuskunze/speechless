@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import List, Callable
 
 import keras
+import tensorflow as tf
 from keras import backend
 from keras.engine import Input
 from keras.engine import Model
@@ -30,7 +31,7 @@ class Wav2Letter:
                  allowed_characters: List[chr] = list(string.ascii_uppercase + " '"),
                  use_raw_wave_input: bool = False,
                  activation: str = "relu",
-                 output_activation: str = "softmax",
+                 output_activation: str = None,
                  optimizer: Optimizer = SGD(lr=1e-3, momentum=0.9, clipnorm=5)):
 
         self.output_activation = output_activation
@@ -122,8 +123,22 @@ class Wav2Letter:
     @staticmethod
     def _ctc_lambda(args):
         prediction_batch, label_batch, prediction_lengths, label_lengths = args
-        return backend.ctc_batch_cost(y_true=label_batch, y_pred=prediction_batch, input_length=prediction_lengths,
-                                      label_length=label_lengths)
+        return Wav2Letter.ctc_batch_cost_no_log(y_true=label_batch, y_pred=prediction_batch,
+                                                input_length=prediction_lengths, label_length=label_lengths)
+
+    @staticmethod
+    def ctc_batch_cost_no_log(y_true, y_pred, input_length, label_length):
+        """Copied from keras.backend.ctc_batch_cost, with the difference shown below."""
+        label_length = tf.to_int32(tf.squeeze(label_length))
+        input_length = tf.to_int32(tf.squeeze(input_length))
+        sparse_labels = tf.to_int32(keras.backend.ctc_label_dense_to_sparse(y_true, label_length))
+
+        # Difference here: no tf.log(... + 1e-8)
+        y_pred = tf.transpose(y_pred, perm=[1, 0, 2])
+
+        return tf.expand_dims(keras.backend.ctc.ctc_loss(inputs=y_pred,
+                                                         labels=sparse_labels,
+                                                         sequence_length=input_length), 1)
 
     def predict(self, input_batch: ndarray) -> List[str]:
         return self.decode_prediction_batch(self.prediction_batch(input_batch))

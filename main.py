@@ -60,7 +60,7 @@ def train_wav2letter(examples: List[LabeledExample]):
     # (see keras.backend.ctc_batch_cost)
 
     wav2letter = Wav2Letter(input_size_per_time_step=spectrograms[0].shape[1], optimizer=Adagrad(lr=1e-3))
-    name = timestamp() + "-adagrad"
+    name = timestamp() + "-adagrad-new"
 
     wav2letter.train(spectrograms=spectrograms, labels=labels(examples),
                      tensor_board_log_directory=tensorboard_log_base_directory / name,
