@@ -30,7 +30,7 @@ class Wav2Letter:
                  allowed_characters: List[chr] = list(string.ascii_uppercase + " '"),
                  use_raw_wave_input: bool = False,
                  activation: str = "relu",
-                 output_activation: str = None,
+                 output_activation: str = "softmax",
                  optimizer: Optimizer = SGD(lr=1e-3, momentum=0.9, clipnorm=5)):
 
         self.output_activation = output_activation
