@@ -50,17 +50,8 @@ def labels(examples: List[LabeledExample]):
 def train_wav2letter(examples: List[LabeledExample]):
     spectrograms = normalized_transposed_spectrograms(examples)
 
-    # TODO check again whether output = softmax is necessary, as tf.ctc_loss states:
-    # "This class performs the softmax operation for you"
-    # (https://github.com/tensorflow/tensorflow/blob/master/tensorflow/g3doc/api_docs/python/functions_and_classes/shard0/tf.nn.ctc_loss.md)
-    # vs. softmax activation unit here:
-    # https://github.com/fchollet/keras/blob/883f74ca410e822fba266c4c344a09e364693951/examples/image_ocr.py#L456
-
-    # TODO also check: for some reason, the keras implementation takes the logarithm of the predictions
-    # (see keras.backend.ctc_batch_cost)
-
     wav2letter = Wav2Letter(input_size_per_time_step=spectrograms[0].shape[1], optimizer=Adagrad(lr=1e-3))
-    name = timestamp() + "-adagrad-new"
+    name = timestamp() + "-adagrad"
 
     wav2letter.train(spectrograms=spectrograms, labels=labels(examples),
                      tensor_board_log_directory=tensorboard_log_base_directory / name,

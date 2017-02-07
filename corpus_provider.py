@@ -3,7 +3,7 @@ import urllib.request
 from os import makedirs
 from pathlib import Path
 from tarfile import *
-from typing import List
+from typing import List, Iterable
 
 from labeled_example import LabeledExample
 
@@ -12,7 +12,9 @@ tar_gz_extension = ".tar.gz"
 
 
 class CorpusProvider:
-    def __init__(self, base_directory: Path, base_url: str = "http://www.openslr.org/resources/12/"):
+    def __init__(self, base_directory: Path, base_url: str = "http://www.openslr.org/resources/12/",
+                 corpus_names: Iterable[str] = ("dev-clean", "dev-other", "test-clean", "test-other",
+                                                "train-clean-100", "train-clean-360", "train-other-500")):
         self.base_directory = base_directory
         self.base_url = base_url
         # not Path.mkdir() for compatibility with Python 3.4
@@ -57,12 +59,12 @@ class CorpusProvider:
     def _unpack_tar_if_not_yet_done(self, tar_file: Path, target_directory: Path) -> Path:
         if not target_directory.is_dir():
             with tarfile.open(str(tar_file), 'r:gz') as tar:
-                tar.extractall(str(target_directory), members=self._tar_members(tar))
+                tar.extractall(str(target_directory), members=self._tar_members_top_folder_skipped(tar))
 
         return target_directory
 
     @staticmethod
-    def _tar_members(tar: TarFile, root_directory_name_to_skip="LibriSpeech/") -> List[TarInfo]:
+    def _tar_members_top_folder_skipped(tar: TarFile, root_directory_name_to_skip="LibriSpeech/") -> List[TarInfo]:
         members = tar.getmembers()
         for member in members:
             member.name = member.name.replace(root_directory_name_to_skip, '')
