@@ -7,12 +7,12 @@ from typing import List, Iterable
 
 from labeled_example import LabeledExample
 
-test_clean = "test-clean"
 tar_gz_extension = ".tar.gz"
 
 
 class CorpusProvider:
-    def __init__(self, base_directory: Path, base_url: str = "http://www.openslr.org/resources/12/",
+    def __init__(self, base_directory: Path,
+                 base_url: str = "http://www.openslr.org/resources/12/",
                  corpus_names: Iterable[str] = ("dev-clean", "dev-other", "test-clean", "test-other",
                                                 "train-clean-100", "train-clean-360", "train-other-500")):
         self.base_directory = base_directory

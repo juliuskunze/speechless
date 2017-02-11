@@ -1,12 +1,11 @@
 import string
+from abc import ABCMeta, abstractmethod
 from functools import reduce
-from itertools import *
 from os import makedirs
 from pathlib import Path
-from typing import List, Callable
+from typing import List, Callable, Iterable
 
 import keras
-import tensorflow as tf
 from keras import backend
 from keras.engine import Input
 from keras.engine import Model
@@ -17,6 +16,16 @@ from lazy import lazy
 from numpy import *
 
 from grapheme_enconding import CtcGraphemeEncoding
+
+
+class LabeledSpectrogram:
+    __metaclass__ = ABCMeta
+
+    @abstractmethod
+    def label(self) -> str: raise NotImplementedError
+
+    @abstractmethod
+    def spectrogram(self) -> ndarray: raise NotImplementedError
 
 
 class Wav2Letter:
@@ -33,7 +42,7 @@ class Wav2Letter:
                  allowed_characters: List[chr] = list(string.ascii_uppercase + " '"),
                  use_raw_wave_input: bool = False,
                  activation: str = "relu",
-                 output_activation: str = None,
+                 output_activation: str = "softmax",
                  optimizer: Optimizer = SGD(lr=1e-3, momentum=0.9, clipnorm=5)):
 
         self.output_activation = output_activation
@@ -91,7 +100,7 @@ class Wav2Letter:
         return reduce(lambda x, y: x * y, [layer.subsample_length for layer in self.predictive_net.layers], 1)
 
     def prediction_batch(self, input_batch: ndarray) -> ndarray:
-        """Predicts a grapheme probability batch given a spectrogram batch, employing the predictive network."""
+        """Predicts a grapheme probability batch given a spectrogram batch, employing the learned predictive network."""
         return backend.function(self.predictive_net.inputs, self.predictive_net.outputs)([input_batch])[0]
 
     @lazy
@@ -120,22 +129,8 @@ class Wav2Letter:
     @staticmethod
     def _ctc_lambda(args):
         prediction_batch, label_batch, prediction_lengths, label_lengths = args
-        return Wav2Letter.ctc_batch_cost_no_log(y_true=label_batch, y_pred=prediction_batch,
-                                                input_length=prediction_lengths, label_length=label_lengths)
-
-    @staticmethod
-    def ctc_batch_cost_no_log(y_true, y_pred, input_length, label_length):
-        """Copied from keras.backend.ctc_batch_cost, with the difference shown below."""
-        label_length = tf.to_int32(tf.squeeze(label_length))
-        input_length = tf.to_int32(tf.squeeze(input_length))
-        sparse_labels = tf.to_int32(keras.backend.ctc_label_dense_to_sparse(y_true, label_length))
-
-        # Difference here: no tf.log(... + 1e-8)
-        y_pred = tf.transpose(y_pred, perm=[1, 0, 2])
-
-        return tf.expand_dims(keras.backend.ctc.ctc_loss(inputs=y_pred,
-                                                         labels=sparse_labels,
-                                                         sequence_length=input_length), 1)
+        return backend.ctc_batch_cost(y_true=label_batch, y_pred=prediction_batch,
+                                      input_length=prediction_lengths, label_length=label_lengths)
 
     def predict(self, spectrograms: List[ndarray]) -> List[str]:
         input_batch, prediction_lengths = self._input_batch_and_prediction_lengths(spectrograms)
@@ -143,28 +138,27 @@ class Wav2Letter:
         return self.grapheme_encoding.decode_prediction_batch(self.prediction_batch(input_batch),
                                                               prediction_lengths=prediction_lengths)
 
-    def train(self, spectrograms: List[ndarray], labels: List[str], tensor_board_log_directory: Path,
-              net_directory: Path):
-        # not Path.mkdir() for compatibility with Python 3.4
-        makedirs(str(net_directory), exist_ok=True)
+    def train(self, labeled_spectrogram_batches: Iterable[List[LabeledSpectrogram]],
+              test_labeled_spectrogram_batch: Iterable[LabeledSpectrogram], tensor_board_log_directory: Path,
+              net_directory: Path, samples_per_epoch: int):
 
         def print_expectations_vs_prediction():
             print("\n\n".join(
                 'Expected:  "{}"\nPredicted: "{}"'.format(expected.lower(), predicted.lower()) for expected, predicted
-                in zip(labels, self.predict(spectrograms=spectrograms))))
+                in zip([x.label() for x in test_labeled_spectrogram_batch],
+                       self.predict(spectrograms=[x.spectrogram() for x in test_labeled_spectrogram_batch]))))
 
         print_expectations_vs_prediction()
 
-        batch_size = len(spectrograms)
-        dummy_labels_for_dummy_loss_function = zeros((batch_size,))
-
-        training_input_dictionary = self._training_input_dictionary(spectrograms, labels)
-
         def generate_data():
-            while True:
+            for labeled_spectrogram_batch in labeled_spectrogram_batches:
+                batch_size = len(labeled_spectrogram_batch)
+                dummy_labels_for_dummy_loss_function = zeros((batch_size,))
+                training_input_dictionary = self._training_input_dictionary(
+                    labeled_spectrogram_batch=labeled_spectrogram_batch)
                 yield (training_input_dictionary, dummy_labels_for_dummy_loss_function)
 
-        self.loss_net.fit_generator(generate_data(), samples_per_epoch=20, nb_epoch=100000000,
+        self.loss_net.fit_generator(generate_data(), nb_epoch=100000000, samples_per_epoch=samples_per_epoch,
                                     callbacks=self.create_callbacks(
                                         callback=print_expectations_vs_prediction,
                                         tensor_board_log_directory=tensor_board_log_directory,
@@ -177,7 +171,10 @@ class Wav2Letter:
                 if epoch % callback_step == 0:
                     callback()
 
-                if epoch % save_step == 0:
+                if epoch % save_step == 0 and epoch > 0:
+                    # not Path.mkdir() for compatibility with Python 3.4
+                    makedirs(str(net_directory), exist_ok=True)
+
                     self.predictive_net.save(str(net_directory / "predictive-epoch{}.kerasnet".format(epoch)))
                     self.loss_net.save(str(net_directory / "loss-epoch{}.kerasnet".format(epoch)))
 
@@ -195,19 +192,21 @@ class Wav2Letter:
 
         return input_batch, prediction_lengths
 
-    def _training_input_dictionary(self, spectrograms: List[ndarray], labels: List[str]) -> dict:
+    def _training_input_dictionary(self, labeled_spectrogram_batch: List[LabeledSpectrogram]) -> dict:
         """
         :param spectrograms: In shape (time, channels)
         :param labels:
         :return:
         """
-        assert (len(labels) == len(spectrograms))
-
+        spectrograms = [x.spectrogram() for x in labeled_spectrogram_batch]
+        labels = [x.label() for x in labeled_spectrogram_batch]
         input_batch, prediction_lengths = self._input_batch_and_prediction_lengths(spectrograms)
 
         return {
             Wav2Letter.InputNames.input_batch: input_batch,
-            Wav2Letter.InputNames.prediction_lengths: reshape(array(prediction_lengths), (len(spectrograms), 1)),
+            Wav2Letter.InputNames.prediction_lengths: reshape(array(prediction_lengths),
+                                                              (len(labeled_spectrogram_batch), 1)),
             Wav2Letter.InputNames.label_batch: self.grapheme_encoding.encode_label_batch(labels),
-            Wav2Letter.InputNames.label_lengths: reshape(array([len(label) for label in labels]), (len(labels), 1))
+            Wav2Letter.InputNames.label_lengths: reshape(array([len(label) for label in labels]),
+                                                         (len(labeled_spectrogram_batch), 1))
         }
