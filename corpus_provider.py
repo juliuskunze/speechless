@@ -19,14 +19,14 @@ class CorpusProvider:
         self.base_url = base_url
         # not Path.mkdir() for compatibility with Python 3.4
         makedirs(str(base_directory), exist_ok=True)
-
-        result_directory = self._download_and_unpack_if_not_yet_done(file_name_without_extension=test_clean)
-        self.corpus_directory = result_directory / test_clean
+        self.corpus_directories = [self._download_and_unpack_if_not_yet_done(corpus_name=corpus_name) for corpus_name in
+                                   corpus_names]
         self.examples = self.get_examples()
 
     def get_examples(self) -> List[LabeledExample]:
         files = [file
-                 for directory in self.corpus_directory.iterdir() if directory.is_dir()
+                 for corpus_directory in self.corpus_directories
+                 for directory in corpus_directory.iterdir() if directory.is_dir()
                  for subdirectory in directory.iterdir() if subdirectory.is_dir()
                  for file in subdirectory.iterdir() if file.is_file()]
         flac_files = [file for file in files if file.name.endswith(".flac")]
@@ -47,14 +47,14 @@ class CorpusProvider:
 
         return [example(file) for file in flac_files]
 
-    def _download_and_unpack_if_not_yet_done(self, file_name_without_extension: str) -> Path:
-        file_name = file_name_without_extension + tar_gz_extension
+    def _download_and_unpack_if_not_yet_done(self, corpus_name: str) -> Path:
+        file_name = corpus_name + tar_gz_extension
         url = self.base_url + file_name
 
-        tar_file = self._download_if_not_yet_done(url, Path(self.base_directory, file_name))
+        tar_file = self._download_if_not_yet_done(url, self.base_directory / file_name)
 
         return self._unpack_tar_if_not_yet_done(tar_file,
-                                                target_directory=Path(self.base_directory, file_name_without_extension))
+                                                target_directory=self.base_directory / corpus_name) / corpus_name
 
     def _unpack_tar_if_not_yet_done(self, tar_file: Path, target_directory: Path) -> Path:
         if not target_directory.is_dir():
@@ -73,6 +73,7 @@ class CorpusProvider:
     @staticmethod
     def _download_if_not_yet_done(source_url: str, target_path: Path) -> Path:
         if not target_path.is_file():
+            print("Downloading corpus {} to {}".format(source_url, target_path))
             urllib.request.urlretrieve(source_url, str(target_path))
 
         return target_path

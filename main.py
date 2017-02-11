@@ -7,7 +7,7 @@ from keras.optimizers import Adagrad
 from numpy import *
 
 from corpus_provider import CorpusProvider
-from labeled_example import LabeledExample, SpectrogramFrequencyScale
+from labeled_example import LabeledExample
 from net import Wav2Letter
 
 base_directory = Path(path.expanduser('~')) / "speechless-data"
@@ -22,7 +22,9 @@ nets_base_directory = base_directory / "nets"
 def timestamp() -> str:
     return time.strftime("%Y%m%d-%H%M%S")
 
+
 corpus = CorpusProvider(base_directory / "corpus")
+
 
 def first_20_examples_sorted_by_length():
     return sorted(corpus.examples[:20], key=lambda x: len(x.label))
