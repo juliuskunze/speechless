@@ -7,7 +7,7 @@ from keras.optimizers import Adagrad
 from numpy import *
 
 from corpus_provider import CorpusProvider
-from labeled_example import LabeledExample, SpectrogramFrequencyScale, SpectrogramType
+from labeled_example import LabeledExample, SpectrogramFrequencyScale
 from net import Wav2Letter
 
 base_directory = Path(path.expanduser('~')) / "speechless-data"
@@ -22,57 +22,21 @@ nets_base_directory = base_directory / "nets"
 def timestamp() -> str:
     return time.strftime("%Y%m%d-%H%M%S")
 
-
 corpus = CorpusProvider(base_directory / "corpus")
-
 
 def first_20_examples_sorted_by_length():
     return sorted(corpus.examples[:20], key=lambda x: len(x.label))
 
 
-def z_normalize(array: ndarray) -> ndarray:
-    return (array - mean(array)) / std(array)
-
-
-def normalized_transposed_spectrograms(examples: List[LabeledExample]) -> List[ndarray]:
-    """
-
-    :param examples:
-    :return: Array with shape (time, frequencies), z-normalized
-    """
-    return [z_normalize(example.spectrogram(frequency_scale=SpectrogramFrequencyScale.mel).T) for example in examples]
-
-
-def labels(examples: List[LabeledExample]):
-    return [example.label for example in examples]
-
-
-def train_wav2letter(examples: List[LabeledExample]):
-    spectrograms = normalized_transposed_spectrograms(examples)
+def train_wav2letter(examples: List[LabeledExample]) -> None:
+    spectrograms = [example.z_normalized_transposed_spectrogram() for example in examples]
 
     wav2letter = Wav2Letter(input_size_per_time_step=spectrograms[0].shape[1], optimizer=Adagrad(lr=1e-3))
     name = timestamp() + "-adagrad"
 
-    wav2letter.train(spectrograms=spectrograms, labels=labels(examples),
+    wav2letter.train(spectrograms=spectrograms, labels=[example.label for example in examples],
                      tensor_board_log_directory=tensorboard_log_base_directory / name,
                      net_directory=nets_base_directory / name)
 
-
-def save_spectrograms_of_all_types(example: LabeledExample):
-    for type in SpectrogramType:
-        for frequency_scale in SpectrogramFrequencyScale:
-            example.save_spectrogram(target_directory=base_spectrogram_directory, type=type,
-                                     frequency_scale=frequency_scale)
-
-
-def save_first_ten_spectrograms():
-    for i in range(10):
-        corpus.examples[i].save_spectrogram(target_directory=base_spectrogram_directory)
-
-
-# corpus.examples[0].save_spectrogram(base_spectrogram_directory)
-# corpus.examples[0].plot_raw_sound()
-# save_spectrograms(corpus.examples[0])
-# save_first_ten_spectrograms()
 
 train_wav2letter(first_20_examples_sorted_by_length())

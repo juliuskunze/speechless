@@ -16,6 +16,8 @@ from keras.optimizers import SGD, Optimizer
 from lazy import lazy
 from numpy import *
 
+from grapheme_enconding import CtcGraphemeEncoding
+
 
 class Wav2Letter:
     """Speech-recognition network based on wav2letter (https://arxiv.org/pdf/1609.03193v2.pdf)."""
@@ -38,12 +40,7 @@ class Wav2Letter:
         self.activation = activation
         self.use_raw_wave_input = use_raw_wave_input
         self.input_size_per_time_step = input_size_per_time_step
-
-        self.allowed_characters = allowed_characters
-        self.output_grapheme_set_size = len(allowed_characters) + 1
-        self.allowed_character_count = len(allowed_characters)
-        self.graphemes_by_character = dict((char, index) for index, char in enumerate(allowed_characters))
-        self.ctc_blank = self.output_grapheme_set_size - 1  # ctc blank must be last (see Tensorflow's ctcloss documentation)
+        self.grapheme_encoding = CtcGraphemeEncoding(allowed_characters=allowed_characters)
         self.optimizer = optimizer
 
     @lazy
@@ -79,7 +76,7 @@ class Wav2Letter:
             return [
                 convolution("big_conv_1", filter_count=out_filter_count, filter_length=32),
                 convolution("big_conv_2", filter_count=out_filter_count, filter_length=1),
-                convolution("output_conv", filter_count=self.output_grapheme_set_size, filter_length=1,
+                convolution("output_conv", filter_count=self.grapheme_encoding.grapheme_set_size, filter_length=1,
                             activation=self.output_activation)
             ]
 
@@ -140,27 +137,28 @@ class Wav2Letter:
                                                          labels=sparse_labels,
                                                          sequence_length=input_length), 1)
 
-    def predict(self, input_batch: ndarray) -> List[str]:
-        return self.decode_prediction_batch(self.prediction_batch(input_batch))
+    def predict(self, spectrograms: List[ndarray]) -> List[str]:
+        input_batch, prediction_lengths = self._input_batch_and_prediction_lengths(spectrograms)
+
+        return self.grapheme_encoding.decode_prediction_batch(self.prediction_batch(input_batch),
+                                                              prediction_lengths=prediction_lengths)
 
     def train(self, spectrograms: List[ndarray], labels: List[str], tensor_board_log_directory: Path,
               net_directory: Path):
         # not Path.mkdir() for compatibility with Python 3.4
         makedirs(str(net_directory), exist_ok=True)
 
-        training_input_dictionary = self._training_input_dictionary(spectrograms, labels)
-
-        input_batch = training_input_dictionary[Wav2Letter.InputNames.input_batch]
-
         def print_expectations_vs_prediction():
             print("\n\n".join(
                 'Expected:  "{}"\nPredicted: "{}"'.format(expected.lower(), predicted.lower()) for expected, predicted
-                in zip(labels, self.predict(input_batch))))
+                in zip(labels, self.predict(spectrograms=spectrograms))))
 
         print_expectations_vs_prediction()
 
         batch_size = len(spectrograms)
         dummy_labels_for_dummy_loss_function = zeros((batch_size,))
+
+        training_input_dictionary = self._training_input_dictionary(spectrograms, labels)
 
         def generate_data():
             while True:
@@ -186,34 +184,16 @@ class Wav2Letter:
         tensorboard = keras.callbacks.TensorBoard(log_dir=str(tensor_board_log_directory), write_images=True)
         return [tensorboard, CustomCallback()]
 
-    def decode_prediction_batch(self, prediction_batch: ndarray) -> List[str]:
-        # TODO use beam search with a language model instead of best path.
-        return [self.decode_graphemes(list(argmax(prediction_batch[i], 1))) for i in
-                range(prediction_batch.shape[0])]
+    def _input_batch_and_prediction_lengths(self, spectrograms: List[ndarray]):
+        batch_size = len(spectrograms)
+        input_size_per_time_step = spectrograms[0].shape[1]
+        input_lengths = [spectrogram.shape[0] for spectrogram in spectrograms]
+        prediction_lengths = [s // self.input_to_prediction_length_ratio for s in input_lengths]
+        input_batch = zeros((batch_size, max(input_lengths), input_size_per_time_step))
+        for index, spectrogram in enumerate(spectrograms):
+            input_batch[index, :spectrogram.shape[0], :spectrogram.shape[1]] = spectrogram
 
-    def decode_graphemes(self, graphemes: List[int]) -> str:
-        grouped_graphemes = [k for k, g in groupby(graphemes)]
-        return self.decode_grouped_graphemes(grouped_graphemes)
-
-    def decode_grouped_graphemes(self, grouped_graphemes: List[int]) -> str:
-        return "".join([self.decode_grapheme(grapheme) for grapheme in grouped_graphemes])
-
-    def encode(self, label: str) -> List[int]:
-        return [self.encode_char(c) for c in label]
-
-    def decode_grapheme(self, grapheme: int) -> str:
-        if grapheme in range(self.allowed_character_count):
-            return self.allowed_characters[grapheme]
-        elif grapheme == self.ctc_blank:
-            return ""
-        else:
-            raise ValueError("Unexpected grapheme: '{}'".format(grapheme))
-
-    def encode_char(self, label_char: chr) -> int:
-        try:
-            return self.graphemes_by_character[label_char]
-        except:
-            raise ValueError("Unexpected char: '{}'".format(label_char))
+        return input_batch, prediction_lengths
 
     def _training_input_dictionary(self, spectrograms: List[ndarray], labels: List[str]) -> dict:
         """
@@ -223,25 +203,11 @@ class Wav2Letter:
         """
         assert (len(labels) == len(spectrograms))
 
-        batch_size = len(spectrograms)
+        input_batch, prediction_lengths = self._input_batch_and_prediction_lengths(spectrograms)
 
-        input_size_per_time_step = spectrograms[0].shape[1]
-
-        input_lengths = [spectrogram.shape[0] for spectrogram in spectrograms]
-        prediction_lengths = [s / self.input_to_prediction_length_ratio for s in input_lengths]
-        input_batch = zeros((batch_size, max(input_lengths), input_size_per_time_step))
-        for index, spectrogram in enumerate(spectrograms):
-            input_batch[index, :spectrogram.shape[0], :spectrogram.shape[1]] = spectrogram
-
-        label_lengths = [len(label) for label in labels]
-        label_batch = -ones((batch_size, max(label_lengths)))
-        for index, label in enumerate(labels):
-            label_batch[index, :len(label)] = array(self.encode(label))
-
-        print(input_batch.shape, label_batch.shape, input_lengths, label_lengths)
         return {
             Wav2Letter.InputNames.input_batch: input_batch,
-            Wav2Letter.InputNames.label_batch: label_batch,
-            Wav2Letter.InputNames.prediction_lengths: reshape(array(prediction_lengths), (batch_size, 1)),
-            Wav2Letter.InputNames.label_lengths: reshape(array(label_lengths), (batch_size, 1))
+            Wav2Letter.InputNames.prediction_lengths: reshape(array(prediction_lengths), (len(spectrograms), 1)),
+            Wav2Letter.InputNames.label_batch: self.grapheme_encoding.encode_label_batch(labels),
+            Wav2Letter.InputNames.label_lengths: reshape(array([len(label) for label in labels]), (len(labels), 1))
         }

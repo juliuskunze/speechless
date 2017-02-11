@@ -2,14 +2,14 @@ import math
 from enum import Enum
 from pathlib import Path
 from textwrap import wrap
-from typing import Any
+from typing import Any, List
 
 import librosa
 import matplotlib.pyplot as plt
-import numpy as np
 from lazy import lazy
 from matplotlib import ticker
 from matplotlib.ticker import ScalarFormatter
+from numpy import ndarray, mean, std, vectorize, dot
 
 
 class SpectrogramFrequencyScale(Enum):
@@ -32,6 +32,10 @@ class ScalarFormatterWithUnit(ScalarFormatter):
         return super().__call__(x, pos) + self.unit
 
 
+def z_normalize(array: ndarray) -> ndarray:
+    return (array - mean(array)) / std(array)
+
+
 class LabeledExample:
     def __init__(self, id: str, flac_file: Path, label: str, fourier_window_length: int = 512, hop_length: int = 128,
                  sample_rate: int = 16000):
@@ -49,27 +53,27 @@ class LabeledExample:
         assert (sample_rate == self.sample_rate)
         return raw_sound
 
-    def _power_spectrogram(self):
+    def _power_spectrogram(self) -> ndarray:
         return self._amplitude_spectrogram() ** 2
 
-    def _amplitude_spectrogram(self):
-        return np.abs(self._complex_spectrogram())
+    def _amplitude_spectrogram(self) -> ndarray:
+        return abs(self._complex_spectrogram())
 
-    def _complex_spectrogram(self):
+    def _complex_spectrogram(self) -> ndarray:
         return librosa.stft(y=self.raw_sound, n_fft=self.fourier_window_length, hop_length=self.hop_length)
 
-    def mel_frequencies(self):
+    def mel_frequencies(self) -> List[float]:
         # according to librosa.filters.mel
         return librosa.mel_frequencies(128 + 2, fmax=self.sample_rate / 2)
 
-    def _convert_spectrogram_to_mel_scale(self, linear_frequency_spectrogram):
-        return np.dot(librosa.filters.mel(sr=self.sample_rate, n_fft=self.fourier_window_length),
+    def _convert_spectrogram_to_mel_scale(self, linear_frequency_spectrogram: ndarray) -> ndarray:
+        return dot(librosa.filters.mel(sr=self.sample_rate, n_fft=self.fourier_window_length),
                       linear_frequency_spectrogram)
 
-    def plot_raw_sound(self):
+    def plot_raw_sound(self) -> None:
         self._plot_sound(self.raw_sound)
 
-    def _plot_sound(self, sound):
+    def _plot_sound(self, sound) -> None:
         plt.title(str(self))
         plt.xlabel("time / samples (sample rate {}Hz)".format(self.sample_rate))
         plt.ylabel("y")
@@ -91,14 +95,14 @@ class LabeledExample:
         plt.savefig(str(path))
         return path
 
-    def highest_detectable_frequency(self):
+    def highest_detectable_frequency(self) -> float:
         return self.sample_rate / 2
 
-    def duration_in_s(self):
+    def duration_in_s(self) -> float:
         return self.raw_sound.shape[0] / self.sample_rate
 
     def spectrogram(self, type: SpectrogramType = SpectrogramType.power_level,
-                    frequency_scale: SpectrogramFrequencyScale = SpectrogramFrequencyScale.linear):
+                    frequency_scale: SpectrogramFrequencyScale = SpectrogramFrequencyScale.linear) -> ndarray:
         def spectrogram_by_type():
             if type == SpectrogramType.power:
                 return self._power_spectrogram()
@@ -113,18 +117,24 @@ class LabeledExample:
 
         return self._convert_spectrogram_to_mel_scale(s) if frequency_scale == SpectrogramFrequencyScale.mel else s
 
+    def z_normalized_transposed_spectrogram(self):
+        """
+        :return: Array with shape (time, frequencies)
+        """
+        return z_normalize(self.spectrogram(frequency_scale=SpectrogramFrequencyScale.mel).T)
+
     @staticmethod
-    def frequency_count(spectrogram):
+    def frequency_count(spectrogram: ndarray) -> int:
         return spectrogram.shape[0]
 
     def time_step_count(self) -> int:
         return self.spectrogram().shape[1]
 
-    def time_step_rate(self):
+    def time_step_rate(self) -> float:
         return self.time_step_count() / self.duration_in_s()
 
     def prepare_spectrogram_plot(self, type: SpectrogramType = SpectrogramType.power_level,
-                                 frequency_scale: SpectrogramFrequencyScale = SpectrogramFrequencyScale.linear):
+                                 frequency_scale: SpectrogramFrequencyScale = SpectrogramFrequencyScale.linear) -> None:
         spectrogram = self.spectrogram(type, frequency_scale=frequency_scale)
 
         figure, axes = plt.subplots(1, 1)
@@ -154,7 +164,7 @@ class LabeledExample:
         figure.set_size_inches(19.20, 10.80)
 
     @staticmethod
-    def _power_level_from_power_spectrogram(spectrogram):
+    def _power_level_from_power_spectrogram(spectrogram: ndarray) -> ndarray:
         # default value for min_decibel found by experiment (all values except for 0s were above this bound)
         def power_to_decibel(x, min_decibel: float = -150) -> float:
             if x == 0:
@@ -162,20 +172,26 @@ class LabeledExample:
             l = 10 * math.log10(x)
             return min_decibel if l < min_decibel else l
 
-        return np.vectorize(power_to_decibel)(spectrogram)
+        return vectorize(power_to_decibel)(spectrogram)
 
-    def reconstructed_sound_from_spectrogram(self):
+    def reconstructed_sound_from_spectrogram(self) -> ndarray:
         return librosa.istft(self._complex_spectrogram(), win_length=self.fourier_window_length,
                              hop_length=self.hop_length)
 
-    def plot_reconstructed_sound_from_spectrogram(self):
+    def plot_reconstructed_sound_from_spectrogram(self) -> None:
         self._plot_sound(self.reconstructed_sound_from_spectrogram())
 
-    def save_reconstructed_sound_from_spectrogram(self, target_directory: Path):
+    def save_reconstructed_sound_from_spectrogram(self, target_directory: Path) -> None:
         librosa.output.write_wav(
             str(Path(target_directory,
                      "{}_window{}_hop{}.wav".format(self.id, self.fourier_window_length, self.hop_length))),
             self.reconstructed_sound_from_spectrogram(), sr=self.sample_rate)
 
-    def __str__(self):
+    def save_spectrograms_of_all_types(self, target_directory: Path) -> None:
+        for type in SpectrogramType:
+            for frequency_scale in SpectrogramFrequencyScale:
+                self.save_spectrogram(target_directory=target_directory, type=type,
+                                      frequency_scale=frequency_scale)
+
+    def __str__(self) -> str:
         return '{0}: "{1}"'.format(self.id, self.label)
