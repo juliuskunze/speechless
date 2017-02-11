@@ -22,7 +22,7 @@ def timestamp() -> str:
     return time.strftime("%Y%m%d-%H%M%S")
 
 
-corpus = CorpusProvider(base_directory / "corpus", corpus_names=["test-clean"])
+corpus = CorpusProvider(base_directory / "corpus")
 
 
 def first_20_examples_sorted_by_length():
@@ -52,21 +52,21 @@ def first_20_examples_sorted_by_length():
                   key=lambda x: len(x.label))
 
 
-labeled_spectrogram_batch_generator = LabeledSpectrogramBatchGenerator(examples=first_20_examples_sorted_by_length(),
-                                                                       spectrogram_cache_directory=base_directory / "spectrogram-cache" / "mel",
-                                                                       batch_size=20)
+labeled_spectrogram_batch_generator = LabeledSpectrogramBatchGenerator(
+    examples=corpus.examples[:int(len(corpus.examples) * .95)],
+    spectrogram_cache_directory=base_directory / "spectrogram-cache" / "mel")
 
 
 def train_wav2letter() -> None:
     wav2letter = Wav2Letter(input_size_per_time_step=labeled_spectrogram_batch_generator.input_size_per_time_step(),
                             optimizer=Adagrad(lr=1e-3))
-    name = timestamp() + "-adagrad"
+    name = timestamp() + "-adagrad-complete-95"
 
     wav2letter.train(labeled_spectrogram_batch_generator.training_batches(),
                      tensor_board_log_directory=tensorboard_log_base_directory / name,
                      net_directory=nets_base_directory / name,
                      test_labeled_spectrogram_batch=labeled_spectrogram_batch_generator.test_batch(),
-                     samples_per_epoch=20)
+                     samples_per_epoch=labeled_spectrogram_batch_generator.batch_size * 100)
 
 
 train_wav2letter()

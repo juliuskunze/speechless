@@ -1,4 +1,4 @@
-from itertools import cycle
+import random
 from os import makedirs
 from pathlib import Path
 from typing import Callable, List, Iterable
@@ -53,10 +53,5 @@ class LabeledSpectrogramBatchGenerator:
         return self.labeled_spectrograms[:self.batch_size]
 
     def training_batches(self) -> Iterable[List[LabeledSpectrogram]]:
-        batch = []
-        for labeled_spectrogram in cycle(self.labeled_spectrograms):
-            batch.append(labeled_spectrogram)
-
-            if len(batch) == self.batch_size:
-                yield batch
-                batch = []
+        while True:
+            yield random.sample(self.labeled_spectrograms, self.batch_size)

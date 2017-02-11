@@ -165,7 +165,7 @@ class Wav2Letter:
                                         net_directory=net_directory))
 
     def create_callbacks(self, callback: Callable[[], None], tensor_board_log_directory: Path, net_directory: Path,
-                         callback_step: int = 100, save_step: int = 10000) -> List[keras.callbacks.Callback]:
+                         callback_step: int = 1, save_step: int = 20) -> List[keras.callbacks.Callback]:
         class CustomCallback(keras.callbacks.Callback):
             def on_epoch_end(self_callback, epoch, logs=()):
                 if epoch % callback_step == 0:

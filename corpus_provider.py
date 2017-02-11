@@ -45,7 +45,7 @@ class CorpusProvider:
             id = flac_file.name.replace(".flac", "")
             return LabeledExample(id, flac_file, labels_by_id[id])
 
-        return [example(file) for file in flac_files]
+        return sorted([example(file) for file in flac_files], key=lambda x: x.id)
 
     def _download_and_unpack_if_not_yet_done(self, corpus_name: str) -> Path:
         file_name = corpus_name + tar_gz_extension
