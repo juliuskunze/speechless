@@ -54,7 +54,7 @@ class Wav2Letter:
         self.grapheme_encoding = CtcGraphemeEncoding(allowed_characters=allowed_characters)
         self.optimizer = optimizer
         self.load_epoch = load_epoch
-        self.loss_net = self.create_loss_net() if load_model_from_directory is None else load_model(
+        self.predictive_net = self.create_predictive_net() if load_model_from_directory is None else load_model(
             str(load_model_from_directory / self.model_file_name(load_epoch)))
 
     def create_predictive_net(self) -> Sequential:
@@ -101,17 +101,16 @@ class Wav2Letter:
     @lazy
     def input_to_prediction_length_ratio(self):
         """Returns which factor shorter the output is compared to the input caused by striding."""
-        return reduce(lambda x, y: x * y, [layer.subsample_length for layer in self.create_predictive_net().layers], 1)
+        return reduce(lambda x, y: x * y, [layer.subsample_length for layer in self.predictive_net.layers], 1)
 
     def prediction_batch(self, input_batch: ndarray) -> ndarray:
         """Predicts a grapheme probability batch given a spectrogram batch, employing the learned predictive network."""
-        return backend.function(self.loss_net.inputs, self.loss_net.layers["output_conv"].outputs)([input_batch])[0]
+        return backend.function(self.predictive_net.inputs, self.predictive_net.outputs)([input_batch])[0]
 
-    def create_loss_net(self) -> Model:
-        predictive_net = self.create_predictive_net()
-
+    @lazy
+    def loss_net(self) -> Model:
         """Returns the network that yields a loss given both input spectrograms and labels. Used for training."""
-        input_batch = Input(name=Wav2Letter.InputNames.input_batch, batch_shape=predictive_net.input_shape)
+        input_batch = Input(name=Wav2Letter.InputNames.input_batch, batch_shape=self.predictive_net.input_shape)
         label_batch = Input(name=Wav2Letter.InputNames.label_batch, shape=(None,))
         prediction_lengths = Input(name=Wav2Letter.InputNames.prediction_lengths, shape=(1,), dtype='int64')
         label_lengths = Input(name=Wav2Letter.InputNames.label_lengths, shape=(1,), dtype='int64')
@@ -122,7 +121,7 @@ class Wav2Letter:
 
         # This loss layer is placed atop the predictive network and provided with additional arguments,
         # namely the label batch and prediction/label sequence lengths:
-        loss = loss_layer([predictive_net(input_batch), label_batch, prediction_lengths, label_lengths])
+        loss = loss_layer([self.predictive_net(input_batch), label_batch, prediction_lengths, label_lengths])
 
         loss_net = Model(input=[input_batch, label_batch, prediction_lengths, label_lengths], output=[loss])
         # Since loss is already calculated in the last layer of the net, we just pass through the results here.
@@ -171,10 +170,10 @@ class Wav2Letter:
                                     initial_epoch=self.load_epoch if (self.load_epoch is not None) else 0)
 
     def model_file_name(self, epoch):
-        return "loss-epoch{}.kerasnet".format(epoch)
+        return "predictive-epoch{}.kerasnet".format(epoch)
 
     def create_callbacks(self, callback: Callable[[], None], tensor_board_log_directory: Path, net_directory: Path,
-                         callback_step: int = 1, save_step: int = 5) -> List[keras.callbacks.Callback]:
+                         callback_step: int = 1, save_step: int = 1) -> List[keras.callbacks.Callback]:
         class CustomCallback(keras.callbacks.Callback):
             def on_epoch_end(self_callback, epoch, logs=()):
                 if epoch % callback_step == 0:

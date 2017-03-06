@@ -10,6 +10,10 @@ from labeled_example import LabeledExample
 from net import LabeledSpectrogram
 
 
+class CacheException(Exception):
+    pass
+
+
 class CachedLabeledSpectrogram(LabeledSpectrogram):
     def __init__(self, example: LabeledExample, spectrogram_cache_directory: Path,
                  spectrogram_from_example: Callable[[LabeledExample], ndarray] =
@@ -27,7 +31,10 @@ class CachedLabeledSpectrogram(LabeledSpectrogram):
             numpy.save(str(self.spectrogram_cache_file), spectrogram)
             return spectrogram
 
-        return numpy.load(str(self.spectrogram_cache_file))
+        try:
+            return numpy.load(str(self.spectrogram_cache_file))
+        except ValueError as e:
+            raise CacheException("Loading file {} from cache failed.".format(self.spectrogram_cache_file)) from e
 
 
 class LabeledSpectrogramBatchGenerator:
@@ -35,7 +42,6 @@ class LabeledSpectrogramBatchGenerator:
                  spectrogram_from_example: Callable[[LabeledExample], ndarray] =
                  lambda x: x.z_normalized_transposed_spectrogram(),
                  batch_size: int = 64):
-
         # not Path.mkdir() for compatibility with Python 3.4
         makedirs(str(spectrogram_cache_directory), exist_ok=True)
 
