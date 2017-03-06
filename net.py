@@ -10,7 +10,7 @@ from keras import backend
 from keras.engine import Input
 from keras.engine import Model
 from keras.layers import Convolution1D, Lambda
-from keras.models import Sequential
+from keras.models import Sequential, load_model
 from keras.optimizers import SGD, Optimizer
 from lazy import lazy
 from numpy import *
@@ -43,7 +43,9 @@ class Wav2Letter:
                  use_raw_wave_input: bool = False,
                  activation: str = "relu",
                  output_activation: str = "softmax",
-                 optimizer: Optimizer = SGD(lr=1e-3, momentum=0.9, clipnorm=5)):
+                 optimizer: Optimizer = SGD(lr=1e-3, momentum=0.9, clipnorm=5),
+                 load_model_from_directory: Path = None,
+                 load_epoch: int = None):
 
         self.output_activation = output_activation
         self.activation = activation
@@ -51,9 +53,11 @@ class Wav2Letter:
         self.input_size_per_time_step = input_size_per_time_step
         self.grapheme_encoding = CtcGraphemeEncoding(allowed_characters=allowed_characters)
         self.optimizer = optimizer
+        self.load_epoch = load_epoch
+        self.loss_net = self.create_loss_net() if load_model_from_directory is None else load_model(
+            str(load_model_from_directory / self.model_file_name(load_epoch)))
 
-    @lazy
-    def predictive_net(self) -> Sequential:
+    def create_predictive_net(self) -> Sequential:
         """Returns the part of the net that predicts grapheme probabilities given a spectrogram.
          A loss operation is not contained.
          As described here: https://arxiv.org/pdf/1609.03193v2.pdf
@@ -97,16 +101,17 @@ class Wav2Letter:
     @lazy
     def input_to_prediction_length_ratio(self):
         """Returns which factor shorter the output is compared to the input caused by striding."""
-        return reduce(lambda x, y: x * y, [layer.subsample_length for layer in self.predictive_net.layers], 1)
+        return reduce(lambda x, y: x * y, [layer.subsample_length for layer in self.create_predictive_net().layers], 1)
 
     def prediction_batch(self, input_batch: ndarray) -> ndarray:
         """Predicts a grapheme probability batch given a spectrogram batch, employing the learned predictive network."""
-        return backend.function(self.predictive_net.inputs, self.predictive_net.outputs)([input_batch])[0]
+        return backend.function(self.loss_net.inputs, self.loss_net.layers["output_conv"].outputs)([input_batch])[0]
 
-    @lazy
-    def loss_net(self) -> Model:
+    def create_loss_net(self) -> Model:
+        predictive_net = self.create_predictive_net()
+
         """Returns the network that yields a loss given both input spectrograms and labels. Used for training."""
-        input_batch = Input(name=Wav2Letter.InputNames.input_batch, batch_shape=self.predictive_net.input_shape)
+        input_batch = Input(name=Wav2Letter.InputNames.input_batch, batch_shape=predictive_net.input_shape)
         label_batch = Input(name=Wav2Letter.InputNames.label_batch, shape=(None,))
         prediction_lengths = Input(name=Wav2Letter.InputNames.prediction_lengths, shape=(1,), dtype='int64')
         label_lengths = Input(name=Wav2Letter.InputNames.label_lengths, shape=(1,), dtype='int64')
@@ -117,7 +122,7 @@ class Wav2Letter:
 
         # This loss layer is placed atop the predictive network and provided with additional arguments,
         # namely the label batch and prediction/label sequence lengths:
-        loss = loss_layer([self.predictive_net(input_batch), label_batch, prediction_lengths, label_lengths])
+        loss = loss_layer([predictive_net(input_batch), label_batch, prediction_lengths, label_lengths])
 
         loss_net = Model(input=[input_batch, label_batch, prediction_lengths, label_lengths], output=[loss])
         # Since loss is already calculated in the last layer of the net, we just pass through the results here.
@@ -129,8 +134,8 @@ class Wav2Letter:
     @staticmethod
     def _ctc_lambda(args):
         prediction_batch, label_batch, prediction_lengths, label_lengths = args
-        return backend.ctc_batch_cost(y_true=label_batch, y_pred=prediction_batch,
-                                      input_length=prediction_lengths, label_length=label_lengths)
+        return keras.backend.ctc_batch_cost(y_true=label_batch, y_pred=prediction_batch,
+                                            input_length=prediction_lengths, label_length=label_lengths)
 
     def predict(self, spectrograms: List[ndarray]) -> List[str]:
         input_batch, prediction_lengths = self._input_batch_and_prediction_lengths(spectrograms)
@@ -162,10 +167,14 @@ class Wav2Letter:
                                     callbacks=self.create_callbacks(
                                         callback=print_expectations_vs_prediction,
                                         tensor_board_log_directory=tensor_board_log_directory,
-                                        net_directory=net_directory))
+                                        net_directory=net_directory),
+                                    initial_epoch=self.load_epoch if (self.load_epoch is not None) else 0)
+
+    def model_file_name(self, epoch):
+        return "loss-epoch{}.kerasnet".format(epoch)
 
     def create_callbacks(self, callback: Callable[[], None], tensor_board_log_directory: Path, net_directory: Path,
-                         callback_step: int = 1, save_step: int = 20) -> List[keras.callbacks.Callback]:
+                         callback_step: int = 1, save_step: int = 5) -> List[keras.callbacks.Callback]:
         class CustomCallback(keras.callbacks.Callback):
             def on_epoch_end(self_callback, epoch, logs=()):
                 if epoch % callback_step == 0:
@@ -175,8 +184,7 @@ class Wav2Letter:
                     # not Path.mkdir() for compatibility with Python 3.4
                     makedirs(str(net_directory), exist_ok=True)
 
-                    self.predictive_net.save(str(net_directory / "predictive-epoch{}.kerasnet".format(epoch)))
-                    self.loss_net.save(str(net_directory / "loss-epoch{}.kerasnet".format(epoch)))
+                    self.loss_net.save(str(net_directory / self.model_file_name(epoch)))
 
         tensorboard = keras.callbacks.TensorBoard(log_dir=str(tensor_board_log_directory), write_images=True)
         return [tensorboard, CustomCallback()]

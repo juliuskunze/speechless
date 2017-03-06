@@ -58,8 +58,12 @@ labeled_spectrogram_batch_generator = LabeledSpectrogramBatchGenerator(
 
 
 def train_wav2letter() -> None:
-    wav2letter = Wav2Letter(input_size_per_time_step=labeled_spectrogram_batch_generator.input_size_per_time_step(),
-                            optimizer=Adagrad(lr=1e-3))
+    wav2letter = Wav2Letter(
+        input_size_per_time_step=labeled_spectrogram_batch_generator.input_size_per_time_step(),
+        load_model_from_directory=nets_base_directory / "20170211-210947-adagrad-complete-95",
+        load_epoch=40,
+        optimizer=Adagrad(lr=1e-3))
+
     name = timestamp() + "-adagrad-complete-95"
 
     wav2letter.train(labeled_spectrogram_batch_generator.training_batches(),
