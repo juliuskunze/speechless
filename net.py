@@ -56,7 +56,7 @@ class Wav2Letter:
         self.load_epoch = load_epoch
         self.predictive_net = self.create_predictive_net()
         if load_model_from_directory is not None:
-            self.create_predictive_net().load_weights(str(load_model_from_directory / self.model_file_name(load_epoch)))
+            self.predictive_net.load_weights(str(load_model_from_directory / self.model_file_name(load_epoch)))
 
     def create_predictive_net(self) -> Sequential:
         """Returns the part of the net that predicts grapheme probabilities given a spectrogram.
