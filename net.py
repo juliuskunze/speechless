@@ -133,8 +133,8 @@ class Wav2Letter:
     @staticmethod
     def _ctc_lambda(args):
         prediction_batch, label_batch, prediction_lengths, label_lengths = args
-        return keras.backend.ctc_batch_cost(y_true=label_batch, y_pred=prediction_batch,
-                                            input_length=prediction_lengths, label_length=label_lengths)
+        return backend.ctc_batch_cost(y_true=label_batch, y_pred=prediction_batch,
+                                      input_length=prediction_lengths, label_length=label_lengths)
 
     def predict(self, spectrograms: List[ndarray]) -> List[str]:
         input_batch, prediction_lengths = self._input_batch_and_prediction_lengths(spectrograms)
@@ -200,11 +200,6 @@ class Wav2Letter:
         return input_batch, prediction_lengths
 
     def _training_input_dictionary(self, labeled_spectrogram_batch: List[LabeledSpectrogram]) -> dict:
-        """
-        :param spectrograms: In shape (time, channels)
-        :param labels:
-        :return:
-        """
         spectrograms = [x.spectrogram() for x in labeled_spectrogram_batch]
         labels = [x.label() for x in labeled_spectrogram_batch]
         input_batch, prediction_lengths = self._input_batch_and_prediction_lengths(spectrograms)

@@ -2,7 +2,7 @@ import time
 from os import makedirs, path
 from pathlib import Path
 
-from keras.optimizers import RMSprop
+from keras.optimizers import Adagrad
 from numpy import *
 
 from corpus_provider import CorpusProvider
@@ -60,11 +60,11 @@ labeled_spectrogram_batch_generator = LabeledSpectrogramBatchGenerator(
 def train_wav2letter() -> None:
     wav2letter = Wav2Letter(
         input_size_per_time_step=labeled_spectrogram_batch_generator.input_size_per_time_step(),
-        load_model_from_directory=nets_base_directory / "20170211-210947-adagrad-complete-95",
-        load_epoch=40,
-        optimizer=RMSprop())
+        load_model_from_directory=nets_base_directory / "20170306-175340-adagrad-complete-95",
+        load_epoch=226,
+        optimizer=Adagrad())
 
-    name = timestamp() + "-rmsprop-complete-95"
+    name = timestamp() + "-adagrad-big-learning-rate-complete-95"
 
     wav2letter.train(labeled_spectrogram_batch_generator.training_batches(),
                      tensor_board_log_directory=tensorboard_log_base_directory / name,
