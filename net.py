@@ -10,8 +10,8 @@ from keras import backend
 from keras.engine import Input
 from keras.engine import Model
 from keras.layers import Convolution1D, Lambda
-from keras.models import Sequential, load_model
-from keras.optimizers import SGD, Optimizer
+from keras.models import Sequential
+from keras.optimizers import Optimizer, Adagrad
 from lazy import lazy
 from numpy import *
 
@@ -43,7 +43,7 @@ class Wav2Letter:
                  use_raw_wave_input: bool = False,
                  activation: str = "relu",
                  output_activation: str = "softmax",
-                 optimizer: Optimizer = SGD(lr=1e-3, momentum=0.9, clipnorm=5),
+                 optimizer: Optimizer = Adagrad(lr=1e-3),
                  load_model_from_directory: Path = None,
                  load_epoch: int = None):
 
@@ -54,8 +54,9 @@ class Wav2Letter:
         self.grapheme_encoding = CtcGraphemeEncoding(allowed_characters=allowed_characters)
         self.optimizer = optimizer
         self.load_epoch = load_epoch
-        self.predictive_net = self.create_predictive_net() if load_model_from_directory is None else load_model(
-            str(load_model_from_directory / self.model_file_name(load_epoch)))
+        self.predictive_net = self.create_predictive_net()
+        if load_model_from_directory is not None:
+            self.create_predictive_net().load_weights(str(load_model_from_directory / self.model_file_name(load_epoch)))
 
     def create_predictive_net(self) -> Sequential:
         """Returns the part of the net that predicts grapheme probabilities given a spectrogram.
@@ -170,7 +171,7 @@ class Wav2Letter:
                                     initial_epoch=self.load_epoch if (self.load_epoch is not None) else 0)
 
     def model_file_name(self, epoch):
-        return "predictive-epoch{}.kerasnet".format(epoch)
+        return "weights-epoch{}.h5".format(epoch)
 
     def create_callbacks(self, callback: Callable[[], None], tensor_board_log_directory: Path, net_directory: Path,
                          callback_step: int = 1, save_step: int = 1) -> List[keras.callbacks.Callback]:
@@ -183,10 +184,14 @@ class Wav2Letter:
                     # not Path.mkdir() for compatibility with Python 3.4
                     makedirs(str(net_directory), exist_ok=True)
 
-                    self.loss_net.save(str(net_directory / self.model_file_name(epoch)))
+                    self.predictive_net.save_weights(str(net_directory / self.model_file_name(epoch)))
 
-        tensorboard = keras.callbacks.TensorBoard(log_dir=str(tensor_board_log_directory), write_images=True)
-        return [tensorboard, CustomCallback()]
+                    # TODO probably not needed, remove:
+                    self.predictive_net.save(str(net_directory / "predictive-epoch{}.kerasnet".format(epoch)))
+                    self.loss_net.save(str(net_directory / "loss-epoch{}.kerasnet".format(epoch)))
+
+        tensor_board = keras.callbacks.TensorBoard(log_dir=str(tensor_board_log_directory), write_images=True)
+        return [tensor_board, CustomCallback()]
 
     def _input_batch_and_prediction_lengths(self, spectrograms: List[ndarray]):
         batch_size = len(spectrograms)
