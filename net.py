@@ -6,10 +6,12 @@ from pathlib import Path
 from typing import List, Callable, Iterable
 
 import keras
+import numpy
 from keras import backend
 from keras.engine import Input
+from keras.engine import Layer
 from keras.engine import Model
-from keras.layers import Convolution1D, Lambda
+from keras.layers import Convolution1D, Lambda, Dropout
 from keras.models import Sequential
 from keras.optimizers import Optimizer, Adagrad
 from lazy import lazy
@@ -44,9 +46,9 @@ class Wav2Letter:
                  activation: str = "relu",
                  output_activation: str = "softmax",
                  optimizer: Optimizer = Adagrad(lr=1e-3),
+                 dropout: float = None,
                  load_model_from_directory: Path = None,
                  load_epoch: int = None):
-
         self.output_activation = output_activation
         self.activation = activation
         self.use_raw_wave_input = use_raw_wave_input
@@ -54,6 +56,7 @@ class Wav2Letter:
         self.grapheme_encoding = CtcGraphemeEncoding(allowed_characters=allowed_characters)
         self.optimizer = optimizer
         self.load_epoch = load_epoch
+        self.dropout = dropout
         self.predictive_net = self.create_predictive_net()
         if load_model_from_directory is not None:
             self.predictive_net.load_weights(str(load_model_from_directory / self.model_file_name(load_epoch)))
@@ -66,33 +69,36 @@ class Wav2Letter:
 
         def convolution(name: str, filter_count: int, filter_length: int, striding: int = 1,
                         activation: str = self.activation,
-                        input_dim: int = None) -> Convolution1D:
-            return Convolution1D(nb_filter=filter_count, filter_length=filter_length, subsample_length=striding,
-                                 activation=activation, name=name, input_dim=input_dim, border_mode="same")
+                        input_dim: int = None) -> List[Layer]:
+            return ([Dropout(self.dropout, input_shape=(None, input_dim),
+                             name="dropout_before_{}".format(name))] if self.dropout is not None else []) + [
+                       Convolution1D(nb_filter=filter_count, filter_length=filter_length, subsample_length=striding,
+                                     activation=activation, name=name, input_dim=input_dim, border_mode="same")]
 
         main_filter_count = 250
 
         def input_convolutions() -> List[Convolution1D]:
-            raw_wave_convolution_if_needed = [
-                convolution("wave_conv", filter_count=main_filter_count, filter_length=250, striding=160,
-                            input_dim=self.input_size_per_time_step)] if self.use_raw_wave_input else []
+            raw_wave_convolution_if_needed = convolution(
+                "wave_conv", filter_count=main_filter_count, filter_length=250, striding=160,
+                input_dim=self.input_size_per_time_step) if self.use_raw_wave_input else []
 
-            return raw_wave_convolution_if_needed + [
-                convolution("striding_conv", filter_count=main_filter_count, filter_length=48, striding=2,
-                            input_dim=None if self.use_raw_wave_input else self.input_size_per_time_step)]
+            return raw_wave_convolution_if_needed + convolution(
+                "striding_conv", filter_count=main_filter_count, filter_length=48, striding=2,
+                input_dim=None if self.use_raw_wave_input else self.input_size_per_time_step)
 
         def inner_convolutions() -> List[Convolution1D]:
-            return [convolution("inner_conv_{}".format(i), filter_count=main_filter_count, filter_length=7) for i in
-                    range(1, 8)]
+            return [layer for i in
+                    range(1, 8) for layer in
+                    convolution("inner_conv_{}".format(i), filter_count=main_filter_count, filter_length=7)]
 
         def output_convolutions() -> List[Convolution1D]:
             out_filter_count = 2000
-            return [
+            return [layer for conv in [
                 convolution("big_conv_1", filter_count=out_filter_count, filter_length=32),
                 convolution("big_conv_2", filter_count=out_filter_count, filter_length=1),
                 convolution("output_conv", filter_count=self.grapheme_encoding.grapheme_set_size, filter_length=1,
                             activation=self.output_activation)
-            ]
+            ] for layer in conv]
 
         return Sequential(
             input_convolutions() +
@@ -102,11 +108,14 @@ class Wav2Letter:
     @lazy
     def input_to_prediction_length_ratio(self):
         """Returns which factor shorter the output is compared to the input caused by striding."""
-        return reduce(lambda x, y: x * y, [layer.subsample_length for layer in self.predictive_net.layers], 1)
+        return reduce(lambda x, y: x * y,
+                      [layer.subsample_length for layer in self.predictive_net.layers if
+                       isinstance(layer, Convolution1D)], 1)
 
     def prediction_batch(self, input_batch: ndarray) -> ndarray:
         """Predicts a grapheme probability batch given a spectrogram batch, employing the learned predictive network."""
-        return backend.function(self.predictive_net.inputs, self.predictive_net.outputs)([input_batch])[0]
+        return backend.function(self.predictive_net.inputs + [backend.learning_phase()], self.predictive_net.outputs)(
+            [input_batch, 0.])[0]
 
     @lazy
     def loss_net(self) -> Model:
@@ -146,7 +155,6 @@ class Wav2Letter:
     def train(self, labeled_spectrogram_batches: Iterable[List[LabeledSpectrogram]],
               test_labeled_spectrogram_batch: Iterable[LabeledSpectrogram], tensor_board_log_directory: Path,
               net_directory: Path, samples_per_epoch: int):
-
         def print_expectations_vs_prediction():
             print("\n\n".join(
                 'Expected:  "{}"\nPredicted: "{}"'.format(expected.lower(), predicted.lower()) for expected, predicted
@@ -215,5 +223,6 @@ class Wav2Letter:
                                                               (len(labeled_spectrogram_batch), 1)),
             Wav2Letter.InputNames.label_batch: self.grapheme_encoding.encode_label_batch(labels),
             Wav2Letter.InputNames.label_lengths: reshape(array([len(label) for label in labels]),
-                                                         (len(labeled_spectrogram_batch), 1))
+                                                         (len(labeled_spectrogram_batch), 1)),
+            'keras_learning_phase': numpy.array([True])
         }

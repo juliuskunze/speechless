@@ -59,9 +59,10 @@ labeled_spectrogram_batch_generator = LabeledSpectrogramBatchGenerator(
 def train_wav2letter() -> None:
     wav2letter = Wav2Letter(input_size_per_time_step=labeled_spectrogram_batch_generator.input_size_per_time_step(),
                             load_model_from_directory=Path(nets_base_directory / "20170308-174506-adagrad-complete-95"),
-                            load_epoch=1)
+                            load_epoch=1,
+                            dropout=.3)
 
-    run_name = timestamp() + "-adagrad-complete-95"
+    run_name = timestamp() + "-adagrad-dropout-complete-95"
 
     wav2letter.train(labeled_spectrogram_batch_generator.training_batches(),
                      tensor_board_log_directory=tensorboard_log_base_directory / run_name,
