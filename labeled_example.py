@@ -2,7 +2,7 @@ import math
 from enum import Enum
 from pathlib import Path
 from textwrap import wrap
-from typing import Any, List
+from typing import List, Callable, Tuple, Optional
 
 import librosa
 import matplotlib.pyplot as plt
@@ -36,22 +36,41 @@ def z_normalize(array: ndarray) -> ndarray:
     return (array - mean(array)) / std(array)
 
 
+def get_raw_audio_and_sample_rate_from_file(audio_file):
+    return lambda: librosa.load(str(audio_file), sr=None)
+
+
 class LabeledExample:
-    def __init__(self, id: str, flac_file: Path, label: str, fourier_window_length: int = 512, hop_length: int = 128,
-                 sample_rate: int = 16000):
+    def __init__(self, id: str,
+                 get_raw_sound_and_sample_rate: Callable[[], Tuple[ndarray, int]],
+                 label: Optional[str],
+                 fourier_window_length: int = 512,
+                 hop_length: int = 128,
+                 asserted_sample_rate: int = 16000):
         # The default values for hop_length and fourier_window_length are powers of 2 near the values specified in the wave2letter paper.
         self.id = id
-        self.flac_file = flac_file
+        self.get_raw_sound_and_sample_rate = get_raw_sound_and_sample_rate
         self.label = label
-        self.sample_rate = sample_rate
+        self.assert_sample_rate = asserted_sample_rate
         self.hop_length = hop_length
         self.fourier_window_length = fourier_window_length
 
     @lazy
-    def raw_sound(self) -> (Any, int):
-        raw_sound, sample_rate = librosa.load(str(self.flac_file), sr=None)
-        assert (sample_rate == self.sample_rate)
-        return raw_sound
+    def raw_audio_and_sample_rate(self) -> (ndarray, int):
+        y, sr = self.get_raw_sound_and_sample_rate()
+
+        if self.assert_sample_rate is not None:
+            assert (self.assert_sample_rate == sr)
+
+        return y, sr
+
+    @lazy
+    def raw_audio(self) -> ndarray:
+        return self.raw_audio_and_sample_rate[0]
+
+    @lazy
+    def sample_rate(self) -> int:
+        return self.raw_audio_and_sample_rate[1]
 
     def _power_spectrogram(self) -> ndarray:
         return self._amplitude_spectrogram() ** 2
@@ -60,7 +79,7 @@ class LabeledExample:
         return abs(self._complex_spectrogram())
 
     def _complex_spectrogram(self) -> ndarray:
-        return librosa.stft(y=self.raw_sound, n_fft=self.fourier_window_length, hop_length=self.hop_length)
+        return librosa.stft(y=self.raw_audio, n_fft=self.fourier_window_length, hop_length=self.hop_length)
 
     def mel_frequencies(self) -> List[float]:
         # according to librosa.filters.mel
@@ -68,16 +87,16 @@ class LabeledExample:
 
     def _convert_spectrogram_to_mel_scale(self, linear_frequency_spectrogram: ndarray) -> ndarray:
         return dot(librosa.filters.mel(sr=self.sample_rate, n_fft=self.fourier_window_length),
-                      linear_frequency_spectrogram)
+                   linear_frequency_spectrogram)
 
-    def plot_raw_sound(self) -> None:
-        self._plot_sound(self.raw_sound)
+    def plot_raw_audio(self) -> None:
+        self._plot_audio(self.raw_audio)
 
-    def _plot_sound(self, sound) -> None:
+    def _plot_audio(self, audio: ndarray) -> None:
         plt.title(str(self))
         plt.xlabel("time / samples (sample rate {}Hz)".format(self.sample_rate))
         plt.ylabel("y")
-        plt.plot(sound)
+        plt.plot(audio)
         plt.show()
 
     def show_spectrogram(self, type: SpectrogramType = SpectrogramType.power_level):
@@ -99,7 +118,7 @@ class LabeledExample:
         return self.sample_rate / 2
 
     def duration_in_s(self) -> float:
-        return self.raw_sound.shape[0] / self.sample_rate
+        return self.raw_audio.shape[0] / self.sample_rate
 
     def spectrogram(self, type: SpectrogramType = SpectrogramType.power_level,
                     frequency_scale: SpectrogramFrequencyScale = SpectrogramFrequencyScale.linear) -> ndarray:
@@ -174,18 +193,18 @@ class LabeledExample:
 
         return vectorize(power_to_decibel)(spectrogram)
 
-    def reconstructed_sound_from_spectrogram(self) -> ndarray:
+    def reconstructed_audio_from_spectrogram(self) -> ndarray:
         return librosa.istft(self._complex_spectrogram(), win_length=self.fourier_window_length,
                              hop_length=self.hop_length)
 
-    def plot_reconstructed_sound_from_spectrogram(self) -> None:
-        self._plot_sound(self.reconstructed_sound_from_spectrogram())
+    def plot_reconstructed_audio_from_spectrogram(self) -> None:
+        self._plot_audio(self.reconstructed_audio_from_spectrogram())
 
-    def save_reconstructed_sound_from_spectrogram(self, target_directory: Path) -> None:
+    def save_reconstructed_audio_from_spectrogram(self, target_directory: Path) -> None:
         librosa.output.write_wav(
             str(Path(target_directory,
                      "{}_window{}_hop{}.wav".format(self.id, self.fourier_window_length, self.hop_length))),
-            self.reconstructed_sound_from_spectrogram(), sr=self.sample_rate)
+            self.reconstructed_audio_from_spectrogram(), sr=self.sample_rate)
 
     def save_spectrograms_of_all_types(self, target_directory: Path) -> None:
         for type in SpectrogramType:
@@ -194,4 +213,4 @@ class LabeledExample:
                                       frequency_scale=frequency_scale)
 
     def __str__(self) -> str:
-        return '{0}: "{1}"'.format(self.id, self.label)
+        return self.id + (": {}".format(self.label) if self.label else "")

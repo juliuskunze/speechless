@@ -69,9 +69,11 @@ class Wav2Letter:
 
         def convolution(name: str, filter_count: int, filter_length: int, striding: int = 1,
                         activation: str = self.activation,
-                        input_dim: int = None) -> List[Layer]:
-            return ([Dropout(self.dropout, input_shape=(None, input_dim),
-                             name="dropout_before_{}".format(name))] if self.dropout is not None else []) + [
+                        input_dim: int = None,
+                        never_dropout: bool = False) -> List[Layer]:
+            return ([] if self.dropout is None or never_dropout else [
+                Dropout(self.dropout, input_shape=(None, input_dim),
+                        name="dropout_before_{}".format(name))]) + [
                        Convolution1D(nb_filter=filter_count, filter_length=filter_length, subsample_length=striding,
                                      activation=activation, name=name, input_dim=input_dim, border_mode="same")]
 
@@ -94,10 +96,10 @@ class Wav2Letter:
         def output_convolutions() -> List[Convolution1D]:
             out_filter_count = 2000
             return [layer for conv in [
-                convolution("big_conv_1", filter_count=out_filter_count, filter_length=32),
-                convolution("big_conv_2", filter_count=out_filter_count, filter_length=1),
+                convolution("big_conv_1", filter_count=out_filter_count, filter_length=32, never_dropout=True),
+                convolution("big_conv_2", filter_count=out_filter_count, filter_length=1, never_dropout=True),
                 convolution("output_conv", filter_count=self.grapheme_encoding.grapheme_set_size, filter_length=1,
-                            activation=self.output_activation)
+                            activation=self.output_activation, never_dropout=True)
             ] for layer in conv]
 
         return Sequential(
