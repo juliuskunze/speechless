@@ -5,7 +5,7 @@ from pathlib import Path
 from tarfile import *
 from typing import List, Iterable
 
-from labeled_example import LabeledExample, get_raw_audio_and_sample_rate_from_file
+from labeled_example import LabeledExample
 
 tar_gz_extension = ".tar.gz"
 
@@ -42,9 +42,7 @@ class CorpusProvider:
         assert (len(flac_files) == len(labels_by_id))
 
         def example(flac_file: Path) -> LabeledExample:
-            id = flac_file.name.replace(".flac", "")
-
-            return LabeledExample(id, get_raw_audio_and_sample_rate_from_file(flac_file), labels_by_id[id])
+            return LabeledExample.from_file(flac_file, label_from_id=lambda id: labels_by_id[id])
 
         return sorted([example(file) for file in flac_files], key=lambda x: x.id)
 

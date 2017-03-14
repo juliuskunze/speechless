@@ -154,6 +154,9 @@ class Wav2Letter:
         return self.grapheme_encoding.decode_prediction_batch(self.prediction_batch(input_batch),
                                                               prediction_lengths=prediction_lengths)
 
+    def predict_single(self, spectrogram: ndarray) -> str:
+        return self.predict([spectrogram])[0]
+
     def train(self, labeled_spectrogram_batches: Iterable[List[LabeledSpectrogram]],
               test_labeled_spectrogram_batch: Iterable[LabeledSpectrogram], tensor_board_log_directory: Path,
               net_directory: Path, samples_per_epoch: int):

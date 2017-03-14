@@ -10,7 +10,7 @@ import librosa
 import numpy
 from numpy import ndarray, abs, max, flipud
 
-from labeled_example import LabeledExample, get_raw_audio_and_sample_rate_from_file
+from labeled_example import LabeledExample
 
 
 class Recorder:
@@ -91,6 +91,4 @@ class Recorder:
         "Records from the microphone and outputs the resulting data to 'path'. Returns a labeled example for analysis."
         librosa.output.write_wav(str(path), self.record(), self.sample_rate)
 
-        return LabeledExample(id=str(path.name),
-                              get_raw_sound_and_sample_rate=get_raw_audio_and_sample_rate_from_file(path),
-                              label=None)
+        return LabeledExample.from_file(path)

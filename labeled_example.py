@@ -1,4 +1,5 @@
 import math
+import os
 from enum import Enum
 from pathlib import Path
 from textwrap import wrap
@@ -36,10 +37,6 @@ def z_normalize(array: ndarray) -> ndarray:
     return (array - mean(array)) / std(array)
 
 
-def get_raw_audio_and_sample_rate_from_file(audio_file):
-    return lambda: librosa.load(str(audio_file), sr=None)
-
-
 class LabeledExample:
     def __init__(self, id: str,
                  get_raw_sound_and_sample_rate: Callable[[], Tuple[ndarray, int]],
@@ -54,6 +51,21 @@ class LabeledExample:
         self.assert_sample_rate = asserted_sample_rate
         self.hop_length = hop_length
         self.fourier_window_length = fourier_window_length
+
+    @staticmethod
+    def from_file(audio_file: Path, id: Optional[str] = None,
+                  label_from_id: Callable[[str], Optional[str]] = lambda id: None,
+                  fourier_window_length: int = 512,
+                  hop_length: int = 128,
+                  asserted_sample_rate: int = 16000) -> 'LabeledExample':
+        if id is None:
+            id = os.path.splitext(audio_file.name)[0]
+
+        return LabeledExample(id=id, get_raw_sound_and_sample_rate=lambda: librosa.load(str(audio_file), sr=None),
+                              label=label_from_id(id),
+                              fourier_window_length=fourier_window_length,
+                              hop_length=hop_length,
+                              asserted_sample_rate=asserted_sample_rate)
 
     @lazy
     def raw_audio_and_sample_rate(self) -> (ndarray, int):

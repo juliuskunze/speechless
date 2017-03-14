@@ -6,6 +6,7 @@ from keras.optimizers import Adam
 from numpy import *
 
 from corpus_provider import CorpusProvider
+from labeled_example import LabeledExample
 from net import Wav2Letter
 from recording import Recorder
 from spectrogram_batch import LabeledSpectrogramBatchGenerator
@@ -44,40 +45,14 @@ def record():
 def train_wav2letter() -> None:
     corpus = CorpusProvider(corpus_directory)
 
-    def first_20_examples_sorted_by_length():
-        labels = [
-            "thank you dorcas dear",
-            "yes rachel i do love you",
-            "dorcas in her strange way was moved",
-            "you have been so ill my poor rachel",
-            "thank you rachel my cousin rachel my only friend",
-            "well she was better though she had had a bad night",
-            "i like you still rachel i'm sure i'll always like you",
-            "ill and troubled dear troubled in mind and miserably nervous",
-            "you resemble me rachel you are fearless and inflexible and generous",
-            "this transient spring and lighting up are beautiful a glamour beguiling our senses",
-            "and she threw her arms round her cousin's neck and brave rachel at last burst into tears",
-            "i have very few to love me now and i thought you might love me as i have begun to love you",
-            "it is an antipathy an antipathy i cannot get over dear dorcas you may think it a madness but don't blame me",
-            "yes something everything said rachel hurriedly looking frowningly at a flower which she was twirling in her fingers",
-            "women can hide their pain better than we men and bear it better too except when shame drops fire into the dreadful chalice",
-            "and the wan oracle having spoken she sate down in the same sort of abstraction again beside dorcas and she looked full in her cousin's eyes",
-            "but poor rachel lake had more than that stoical hypocrisy which enables the tortured spirits of her sex to lift a pale face through the flames and smile",
-            "so there came a step and a little rustling of feminine draperies the small door opened and rachel entered with her hand extended and a pale smile of welcome",
-            "chelford had a note from mister wylder this morning another note his coming delayed and something of his having to see some person who is abroad continued dorcas after a little pause",
-            "there was something of sweetness and fondness in her tones and manner which was new to rachel and comforting and she returned the greeting as kindly and felt more like her former self"]
-
-        return sorted([example for example in corpus.examples if example.label.lower() in labels],
-                      key=lambda x: len(x.label))
-
     labeled_spectrogram_batch_generator = LabeledSpectrogramBatchGenerator(
         examples=corpus.examples[:int(len(corpus.examples) * .95)],
         spectrogram_cache_directory=base_directory / "spectrogram-cache" / "mel")
 
     wav2letter = Wav2Letter(input_size_per_time_step=labeled_spectrogram_batch_generator.input_size_per_time_step(),
                             load_model_from_directory=Path(
-                                nets_base_directory / "20170309-113327-adagrad-dropout-complete-95"),
-                            load_epoch=234,
+                                nets_base_directory / "20170314-070930-adam-small-learning-rate-complete-95"),
+                            load_epoch=239,
                             optimizer=Adam(1e-4))
 
     run_name = timestamp() + "-adam-small-learning-rate-complete-95"
@@ -87,6 +62,21 @@ def train_wav2letter() -> None:
                      net_directory=nets_base_directory / run_name,
                      test_labeled_spectrogram_batch=labeled_spectrogram_batch_generator.test_batch(),
                      samples_per_epoch=labeled_spectrogram_batch_generator.batch_size * 100)
+
+
+def predict_recording() -> None:
+    wav2letter = Wav2Letter(
+        input_size_per_time_step=128,
+        load_model_from_directory=Path(nets_base_directory / "20170314-070930-adam-small-learning-rate-complete-95"),
+        load_epoch=239)
+
+    def print_prediction(name: str) -> None:
+        sample = LabeledExample.from_file(recording_directory / name)
+        print(wav2letter.predict_single(sample.z_normalized_transposed_spectrogram()))
+
+    print_prediction("6930-75918-0000.flac")
+    print_prediction("recording-20170310-135534.wav")
+    print_prediction("recording-20170310-135144.wav")
 
 
 train_wav2letter()
