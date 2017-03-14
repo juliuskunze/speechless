@@ -8,7 +8,6 @@ from sys import byteorder
 
 import librosa
 import numpy
-import pyaudio
 from numpy import ndarray, abs, max, flipud
 
 from labeled_example import LabeledExample, get_raw_audio_and_sample_rate_from_file
@@ -42,6 +41,8 @@ class Recorder:
 
     def record(self):
         """Records from the microphone and returns the data as an array of signed shorts."""
+
+        import pyaudio
 
         p = pyaudio.PyAudio()
         stream = p.open(format=pyaudio.paFloat32, channels=1, rate=self.sample_rate, input=True, output=True,

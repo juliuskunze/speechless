@@ -2,6 +2,7 @@ import time
 from os import makedirs, path
 from pathlib import Path
 
+from keras.optimizers import Adam
 from numpy import *
 
 from corpus_provider import CorpusProvider
@@ -74,11 +75,12 @@ def train_wav2letter() -> None:
         spectrogram_cache_directory=base_directory / "spectrogram-cache" / "mel")
 
     wav2letter = Wav2Letter(input_size_per_time_step=labeled_spectrogram_batch_generator.input_size_per_time_step(),
-                            load_model_from_directory=Path(nets_base_directory / "20170308-174506-adagrad-complete-95"),
-                            load_epoch=1,
-                            dropout=.3)
+                            load_model_from_directory=Path(
+                                nets_base_directory / "20170309-113327-adagrad-dropout-complete-95"),
+                            load_epoch=234,
+                            optimizer=Adam(1e-4))
 
-    run_name = timestamp() + "-adagrad-dropout-complete-95"
+    run_name = timestamp() + "-adam-small-learning-rate-complete-95"
 
     wav2letter.train(labeled_spectrogram_batch_generator.training_batches(),
                      tensor_board_log_directory=tensorboard_log_base_directory / run_name,
