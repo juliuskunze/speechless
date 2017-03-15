@@ -151,8 +151,8 @@ class Wav2Letter:
     def predict(self, spectrograms: List[ndarray]) -> List[str]:
         input_batch, prediction_lengths = self._input_batch_and_prediction_lengths(spectrograms)
 
-        return self.grapheme_encoding.decode_prediction_batch(self.prediction_batch(input_batch),
-                                                              prediction_lengths=prediction_lengths)
+        return [x.lower() for x in self.grapheme_encoding.decode_prediction_batch(self.prediction_batch(input_batch),
+                                                                                  prediction_lengths=prediction_lengths)]
 
     def predict_single(self, spectrogram: ndarray) -> str:
         return self.predict([spectrogram])[0]
@@ -162,7 +162,7 @@ class Wav2Letter:
               net_directory: Path, samples_per_epoch: int):
         def print_expectations_vs_prediction():
             print("\n\n".join(
-                'Expected:  "{}"\nPredicted: "{}"'.format(expected.lower(), predicted.lower()) for expected, predicted
+                'Expected:  "{}"\nPredicted: "{}"'.format(expected.lower(), predicted) for expected, predicted
                 in zip([x.label() for x in test_labeled_spectrogram_batch],
                        self.predict(spectrograms=[x.spectrogram() for x in test_labeled_spectrogram_batch]))))
 
