@@ -10,6 +10,11 @@ from labeled_example import LabeledExample
 from net import LabeledSpectrogram
 
 
+def paginate(sequence: List, page_size: int):
+    for start in range(0, len(sequence), page_size):
+        yield sequence[start:start + page_size]
+
+
 class CachedLabeledSpectrogram(LabeledSpectrogram):
     def __init__(self, example: LabeledExample, spectrogram_cache_directory: Path,
                  spectrogram_from_example: Callable[[LabeledExample], ndarray] =
@@ -52,12 +57,12 @@ class LabeledSpectrogramBatchGenerator:
                                      spectrogram_from_example=spectrogram_from_example)
             for example in examples]
 
-    def input_size_per_time_step(self) -> int:
-        return self.labeled_spectrograms[0].spectrogram().shape[1]
-
-    def test_batch(self):
+    def preview_batch(self):
         return self.labeled_spectrograms[:self.batch_size]
 
-    def training_batches(self) -> Iterable[List[LabeledSpectrogram]]:
+    def as_training_batches(self) -> Iterable[List[LabeledSpectrogram]]:
         while True:
             yield random.sample(self.labeled_spectrograms, self.batch_size)
+
+    def as_test_batches(self) -> Iterable[List[LabeledSpectrogram]]:
+        return paginate(self.labeled_spectrograms, self.batch_size)

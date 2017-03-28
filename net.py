@@ -1,6 +1,7 @@
 import string
 from abc import ABCMeta, abstractmethod
 from functools import reduce
+from itertools import cycle
 from os import makedirs
 from pathlib import Path
 from typing import List, Callable, Iterable
@@ -13,7 +14,7 @@ from keras.engine import Layer
 from keras.engine import Model
 from keras.layers import Convolution1D, Lambda, Dropout
 from keras.models import Sequential
-from keras.optimizers import Optimizer, Adagrad
+from keras.optimizers import Optimizer, Adam
 from lazy import lazy
 from numpy import *
 
@@ -45,7 +46,7 @@ class Wav2Letter:
                  use_raw_wave_input: bool = False,
                  activation: str = "relu",
                  output_activation: str = "softmax",
-                 optimizer: Optimizer = Adagrad(lr=1e-3),
+                 optimizer: Optimizer = Adam(1e-4),
                  dropout: float = None,
                  load_model_from_directory: Path = None,
                  load_epoch: int = None):
@@ -58,6 +59,7 @@ class Wav2Letter:
         self.load_epoch = load_epoch
         self.dropout = dropout
         self.predictive_net = self.create_predictive_net()
+        self.prediction_phase_flag = 0.
         if load_model_from_directory is not None:
             self.predictive_net.load_weights(str(load_model_from_directory / self.model_file_name(load_epoch)))
 
@@ -116,8 +118,9 @@ class Wav2Letter:
 
     def prediction_batch(self, input_batch: ndarray) -> ndarray:
         """Predicts a grapheme probability batch given a spectrogram batch, employing the learned predictive network."""
+        # Indicates to use prediction phase in order to disable dropout (see backend.learning_phase documentation):
         return backend.function(self.predictive_net.inputs + [backend.learning_phase()], self.predictive_net.outputs)(
-            [input_batch, 0.])[0]
+            [input_batch, self.prediction_phase_flag])[0]
 
     @lazy
     def loss_net(self) -> Model:
@@ -157,9 +160,33 @@ class Wav2Letter:
     def predict_single(self, spectrogram: ndarray) -> str:
         return self.predict([spectrogram])[0]
 
-    def train(self, labeled_spectrogram_batches: Iterable[List[LabeledSpectrogram]],
-              test_labeled_spectrogram_batch: Iterable[LabeledSpectrogram], tensor_board_log_directory: Path,
-              net_directory: Path, samples_per_epoch: int):
+    def loss(self, labeled_spectrogram_batches: Iterable[List[LabeledSpectrogram]]):
+        batches = list(labeled_spectrogram_batches)
+        sample_count = len([spectrogram for batch in batches for spectrogram in batch])
+        self.loss_net.evaluate_generator(self._generator(cycle(batches), print_batch_loss=True),
+                                         val_samples=sample_count)
+
+    def _generator(self, labeled_spectrogram_batches: Iterable[List[LabeledSpectrogram]],
+                   print_batch_loss: bool = False):
+        for index, labeled_spectrogram_batch in enumerate(labeled_spectrogram_batches):
+            batch_size = len(labeled_spectrogram_batch)
+            dummy_labels_for_dummy_loss_function = zeros((batch_size,))
+            training_input_dictionary = self._training_input_dictionary(
+                labeled_spectrogram_batch=labeled_spectrogram_batch)
+            yield (training_input_dictionary, dummy_labels_for_dummy_loss_function)
+
+            if print_batch_loss:
+                print("Batch {} has loss {}".format(index, self.loss_net.evaluate(
+                    training_input_dictionary,
+                    dummy_labels_for_dummy_loss_function,
+                    batch_size=batch_size)))
+
+    def train(self,
+              labeled_spectrogram_batches: Iterable[List[LabeledSpectrogram]],
+              test_labeled_spectrogram_batch: Iterable[LabeledSpectrogram],
+              tensor_board_log_directory: Path,
+              net_directory: Path,
+              samples_per_epoch: int):
         def print_expectations_vs_prediction():
             print("\n\n".join(
                 'Expected:  "{}"\nPredicted: "{}"'.format(expected.lower(), predicted) for expected, predicted
@@ -168,22 +195,16 @@ class Wav2Letter:
 
         print_expectations_vs_prediction()
 
-        def generate_data():
-            for labeled_spectrogram_batch in labeled_spectrogram_batches:
-                batch_size = len(labeled_spectrogram_batch)
-                dummy_labels_for_dummy_loss_function = zeros((batch_size,))
-                training_input_dictionary = self._training_input_dictionary(
-                    labeled_spectrogram_batch=labeled_spectrogram_batch)
-                yield (training_input_dictionary, dummy_labels_for_dummy_loss_function)
-
-        self.loss_net.fit_generator(generate_data(), nb_epoch=100000000, samples_per_epoch=samples_per_epoch,
+        self.loss_net.fit_generator(self._generator(labeled_spectrogram_batches), nb_epoch=100000000,
+                                    samples_per_epoch=samples_per_epoch,
                                     callbacks=self.create_callbacks(
                                         callback=print_expectations_vs_prediction,
                                         tensor_board_log_directory=tensor_board_log_directory,
                                         net_directory=net_directory),
                                     initial_epoch=self.load_epoch if (self.load_epoch is not None) else 0)
 
-    def model_file_name(self, epoch):
+    @staticmethod
+    def model_file_name(epoch: int) -> str:
         return "weights-epoch{}.h5".format(epoch)
 
     def create_callbacks(self, callback: Callable[[], None], tensor_board_log_directory: Path, net_directory: Path,
@@ -198,10 +219,6 @@ class Wav2Letter:
                     makedirs(str(net_directory), exist_ok=True)
 
                     self.predictive_net.save_weights(str(net_directory / self.model_file_name(epoch)))
-
-                    # TODO probably not needed, remove:
-                    self.predictive_net.save(str(net_directory / "predictive-epoch{}.kerasnet".format(epoch)))
-                    self.loss_net.save(str(net_directory / "loss-epoch{}.kerasnet".format(epoch)))
 
         tensor_board = keras.callbacks.TensorBoard(log_dir=str(tensor_board_log_directory), write_images=True)
         return [tensor_board, CustomCallback()]
@@ -222,6 +239,8 @@ class Wav2Letter:
         labels = [x.label() for x in labeled_spectrogram_batch]
         input_batch, prediction_lengths = self._input_batch_and_prediction_lengths(spectrograms)
 
+        # Sets learning phase to training to enable dropout (see backend.learning_phase documentation for more info):
+        training_phase_flag_tensor = numpy.array([True])
         return {
             Wav2Letter.InputNames.input_batch: input_batch,
             Wav2Letter.InputNames.prediction_lengths: reshape(array(prediction_lengths),
@@ -229,5 +248,5 @@ class Wav2Letter:
             Wav2Letter.InputNames.label_batch: self.grapheme_encoding.encode_label_batch(labels),
             Wav2Letter.InputNames.label_lengths: reshape(array([len(label) for label in labels]),
                                                          (len(labeled_spectrogram_batch), 1)),
-            'keras_learning_phase': numpy.array([True])
+            'keras_learning_phase': training_phase_flag_tensor
         }

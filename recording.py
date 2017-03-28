@@ -83,6 +83,8 @@ class Recorder:
 
         stream.stop_stream()
         stream.close()
+        print("Stopped recording.")
+
         p.terminate()
 
         return self._normalize(self._trim_silence(numpy.concatenate(chunks)))

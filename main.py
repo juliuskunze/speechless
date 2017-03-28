@@ -2,7 +2,6 @@ import time
 from os import makedirs, path
 from pathlib import Path
 
-from keras.optimizers import Adam
 from numpy import *
 
 from corpus_provider import CorpusProvider
@@ -20,32 +19,32 @@ tensorboard_log_base_directory = base_directory / "logs"
 nets_base_directory = base_directory / "nets"
 recording_directory = base_directory / "recordings"
 corpus_directory = base_directory / "corpus"
+spectrogram_cache_directory = base_directory / "spectrogram-cache" / "mel"
 
 
 def timestamp() -> str:
     return time.strftime("%Y%m%d-%H%M%S")
 
 
-def train_wav2letter() -> None:
-    corpus = CorpusProvider(corpus_directory)
+def train_wav2letter(mel_frequency_count: int = 128) -> None:
+    labeled_spectrogram_batch_generator = batch_generator(mel_frequency_count=mel_frequency_count)
 
-    labeled_spectrogram_batch_generator = LabeledSpectrogramBatchGenerator(
-        examples=corpus.examples[:int(len(corpus.examples) * .95)],
-        spectrogram_cache_directory=base_directory / "spectrogram-cache" / "mel")
-
-    wav2letter = Wav2Letter(input_size_per_time_step=labeled_spectrogram_batch_generator.input_size_per_time_step(),
-                            load_model_from_directory=Path(
-                                nets_base_directory / "20170314-134351-adam-small-learning-rate-complete-95"),
-                            load_epoch=304,
-                            optimizer=Adam(1e-4))
+    wav2letter = load_best_wav2letter_model(mel_frequency_count=mel_frequency_count)
 
     run_name = timestamp() + "-adam-small-learning-rate-complete-95"
 
-    wav2letter.train(labeled_spectrogram_batch_generator.training_batches(),
+    wav2letter.train(labeled_spectrogram_batch_generator.as_training_batches(),
                      tensor_board_log_directory=tensorboard_log_base_directory / run_name,
                      net_directory=nets_base_directory / run_name,
-                     test_labeled_spectrogram_batch=labeled_spectrogram_batch_generator.test_batch(),
+                     test_labeled_spectrogram_batch=labeled_spectrogram_batch_generator.preview_batch(),
                      samples_per_epoch=labeled_spectrogram_batch_generator.batch_size * 100)
+
+
+def batch_generator(is_training: bool = True, mel_frequency_count: int = 128) -> LabeledSpectrogramBatchGenerator:
+    corpus = CorpusProvider(corpus_directory, mel_frequency_count=mel_frequency_count)
+    split_index = int(len(corpus.examples) * .95)
+    examples = corpus.examples[:split_index] if is_training else corpus.examples[split_index:]
+    return LabeledSpectrogramBatchGenerator(examples=examples, spectrogram_cache_directory=spectrogram_cache_directory)
 
 
 def record() -> LabeledExample:
@@ -60,10 +59,7 @@ def record() -> LabeledExample:
 
 
 def predict_recording() -> None:
-    wav2letter = Wav2Letter(
-        input_size_per_time_step=128,
-        load_model_from_directory=Path(nets_base_directory / "20170314-134351-adam-small-learning-rate-complete-95"),
-        load_epoch=304)
+    wav2letter = load_best_wav2letter_model()
 
     def predict(sample: LabeledExample) -> str:
         return wav2letter.predict_single(sample.z_normalized_transposed_spectrogram())
@@ -86,8 +82,25 @@ def predict_recording() -> None:
                                    description="Recording of me saying the same sentence")
         print_prediction_from_file("recording-20170314-224329.wav",
                                    description='Recording of me saying "I just wrote a speech recognizer"')
+        print_prediction_from_file("bad-quality-louis.wav",
+                                   description="Louis' rerecording of worse quality")
 
     print_example_predictions()
 
 
-predict_recording()
+def evaluate_best_model():
+    wav2_letter = load_best_wav2letter_model()
+
+    generator = batch_generator(is_training=False)
+
+    print(wav2_letter.loss(generator.as_test_batches()))
+
+
+def load_best_wav2letter_model(mel_frequency_count: int = 128):
+    return Wav2Letter(
+        input_size_per_time_step=mel_frequency_count,
+        load_model_from_directory=Path(nets_base_directory / "20170314-134351-adam-small-learning-rate-complete-95"),
+        load_epoch=1689)
+
+
+train_wav2letter()

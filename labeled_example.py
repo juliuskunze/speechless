@@ -43,20 +43,23 @@ class LabeledExample:
                  label: Optional[str],
                  fourier_window_length: int = 512,
                  hop_length: int = 128,
+                 mel_frequency_count: int = 128,
                  asserted_sample_rate: int = 16000):
         # The default values for hop_length and fourier_window_length are powers of 2 near the values specified in the wave2letter paper.
         self.id = id
         self.get_raw_sound_and_sample_rate = get_raw_sound_and_sample_rate
         self.label = label
         self.assert_sample_rate = asserted_sample_rate
-        self.hop_length = hop_length
         self.fourier_window_length = fourier_window_length
+        self.hop_length = hop_length
+        self.mel_frequency_count = mel_frequency_count
 
     @staticmethod
     def from_file(audio_file: Path, id: Optional[str] = None,
                   label_from_id: Callable[[str], Optional[str]] = lambda id: None,
                   fourier_window_length: int = 512,
                   hop_length: int = 128,
+                  mel_frequency_count: int = 128,
                   asserted_sample_rate: int = 16000) -> 'LabeledExample':
         if id is None:
             id = os.path.splitext(audio_file.name)[0]
@@ -65,6 +68,7 @@ class LabeledExample:
                               label=label_from_id(id),
                               fourier_window_length=fourier_window_length,
                               hop_length=hop_length,
+                              mel_frequency_count=mel_frequency_count,
                               asserted_sample_rate=asserted_sample_rate)
 
     @lazy
@@ -94,12 +98,13 @@ class LabeledExample:
         return librosa.stft(y=self.raw_audio, n_fft=self.fourier_window_length, hop_length=self.hop_length)
 
     def mel_frequencies(self) -> List[float]:
-        # according to librosa.filters.mel
-        return librosa.mel_frequencies(128 + 2, fmax=self.sample_rate / 2)
+        # according to librosa.filters.mel code
+        return librosa.mel_frequencies(self.mel_frequency_count + 2, fmax=self.sample_rate / 2)
 
     def _convert_spectrogram_to_mel_scale(self, linear_frequency_spectrogram: ndarray) -> ndarray:
-        return dot(librosa.filters.mel(sr=self.sample_rate, n_fft=self.fourier_window_length),
-                   linear_frequency_spectrogram)
+        return dot(
+            librosa.filters.mel(sr=self.sample_rate, n_fft=self.fourier_window_length, n_mels=self.mel_frequency_count),
+            linear_frequency_spectrogram)
 
     def plot_raw_audio(self) -> None:
         self._plot_audio(self.raw_audio)
@@ -154,8 +159,7 @@ class LabeledExample:
         """
         return z_normalize(self.spectrogram(frequency_scale=SpectrogramFrequencyScale.mel).T)
 
-    @staticmethod
-    def frequency_count(spectrogram: ndarray) -> int:
+    def frequency_count_from_spectrogram(self, spectrogram: ndarray) -> int:
         return spectrogram.shape[0]
 
     def time_step_count(self) -> int:
@@ -174,9 +178,8 @@ class LabeledExample:
         plt.title("\n".join(wrap(
             "{0}{1} spectrogram for {2}".format(("mel " if use_mel else ""), type.value, str(self)), width=100)))
         plt.xlabel("time (data every {}ms)".format(round(1000 / self.time_step_rate())))
-        plt.ylabel("frequency (data evenly distributed on {} scale, {} total)".format(frequency_scale.value,
-                                                                                      self.frequency_count(
-                                                                                          spectrogram)))
+        plt.ylabel("frequency (data evenly distributed on {} scale, {} total)".format(
+            frequency_scale.value, self.frequency_count_from_spectrogram(spectrogram)))
         mel_frequencies = self.mel_frequencies()
         plt.imshow(
             spectrogram, cmap='gist_heat', origin='lower', aspect='auto', extent=

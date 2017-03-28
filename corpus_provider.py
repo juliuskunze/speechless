@@ -9,14 +9,15 @@ from labeled_example import LabeledExample
 
 tar_gz_extension = ".tar.gz"
 
-
 class CorpusProvider:
     def __init__(self, base_directory: Path,
                  base_url: str = "http://www.openslr.org/resources/12/",
                  corpus_names: Iterable[str] = ("dev-clean", "dev-other", "test-clean", "test-other",
-                                                "train-clean-100", "train-clean-360", "train-other-500")):
+                                                "train-clean-100", "train-clean-360", "train-other-500"),
+                 mel_frequency_count: int = 128):
         self.base_directory = base_directory
         self.base_url = base_url
+        self.mel_frequency_count = mel_frequency_count
         # not Path.mkdir() for compatibility with Python 3.4
         makedirs(str(base_directory), exist_ok=True)
         self.corpus_directories = [self._download_and_unpack_if_not_yet_done(corpus_name=corpus_name) for corpus_name in
@@ -42,7 +43,8 @@ class CorpusProvider:
         assert (len(flac_files) == len(labels_by_id))
 
         def example(flac_file: Path) -> LabeledExample:
-            return LabeledExample.from_file(flac_file, label_from_id=lambda id: labels_by_id[id])
+            return LabeledExample.from_file(flac_file, label_from_id=lambda id: labels_by_id[id],
+                                            mel_frequency_count=self.mel_frequency_count)
 
         return sorted([example(file) for file in flac_files], key=lambda x: x.id)
 
