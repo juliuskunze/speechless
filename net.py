@@ -168,6 +168,7 @@ class Wav2Letter:
 
     def _generator(self, labeled_spectrogram_batches: Iterable[List[LabeledSpectrogram]],
                    print_batch_loss: bool = False):
+        losses = []
         for index, labeled_spectrogram_batch in enumerate(labeled_spectrogram_batches):
             batch_size = len(labeled_spectrogram_batch)
             dummy_labels_for_dummy_loss_function = zeros((batch_size,))
@@ -176,10 +177,10 @@ class Wav2Letter:
             yield (training_input_dictionary, dummy_labels_for_dummy_loss_function)
 
             if print_batch_loss:
-                print("Batch {} has loss {}".format(index, self.loss_net.evaluate(
-                    training_input_dictionary,
-                    dummy_labels_for_dummy_loss_function,
-                    batch_size=batch_size)))
+                loss = self.loss_net.evaluate(training_input_dictionary, dummy_labels_for_dummy_loss_function,
+                                              batch_size=batch_size)
+                losses.append(loss)
+                print("Batch {} has loss {}, so far {} on average".format(index, loss, mean(losses)))
 
     def train(self,
               labeled_spectrogram_batches: Iterable[List[LabeledSpectrogram]],
