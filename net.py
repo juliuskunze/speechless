@@ -1,24 +1,20 @@
-import string
 from abc import ABCMeta, abstractmethod
 from functools import reduce
 from itertools import cycle
-from os import makedirs
 from pathlib import Path
-from typing import List, Callable, Iterable
 
-import keras
-import numpy
 from keras import backend
-from keras.engine import Input
-from keras.engine import Layer
-from keras.engine import Model
+from keras.callbacks import Callback, TensorBoard
+from keras.engine import Input, Layer, Model
 from keras.layers import Convolution1D, Lambda, Dropout
 from keras.models import Sequential
 from keras.optimizers import Optimizer, Adam
 from lazy import lazy
-from numpy import *
+from numpy import ndarray, zeros, array, mean, reshape
+from os import makedirs
+from typing import List, Callable, Iterable
 
-from grapheme_enconding import CtcGraphemeEncoding
+from grapheme_enconding import CtcGraphemeEncoding, frequent_characters_in_english
 
 
 class LabeledSpectrogram:
@@ -42,7 +38,7 @@ class Wav2Letter:
 
     def __init__(self,
                  input_size_per_time_step: int,
-                 allowed_characters: List[chr] = list(string.ascii_uppercase + " '"),
+                 allowed_characters: List[chr] = frequent_characters_in_english,
                  use_raw_wave_input: bool = False,
                  activation: str = "relu",
                  output_activation: str = "softmax",
@@ -154,8 +150,8 @@ class Wav2Letter:
     def predict(self, spectrograms: List[ndarray]) -> List[str]:
         input_batch, prediction_lengths = self._input_batch_and_prediction_lengths(spectrograms)
 
-        return [x.lower() for x in self.grapheme_encoding.decode_prediction_batch(self.prediction_batch(input_batch),
-                                                                                  prediction_lengths=prediction_lengths)]
+        return self.grapheme_encoding.decode_prediction_batch(self.prediction_batch(input_batch),
+                                                              prediction_lengths=prediction_lengths)
 
     def predict_single(self, spectrogram: ndarray) -> str:
         return self.predict([spectrogram])[0]
@@ -190,7 +186,7 @@ class Wav2Letter:
               samples_per_epoch: int):
         def print_expectations_vs_prediction():
             print("\n\n".join(
-                'Expected:  "{}"\nPredicted: "{}"'.format(expected.lower(), predicted) for expected, predicted
+                'Expected:  "{}"\nPredicted: "{}"'.format(expected, predicted) for expected, predicted
                 in zip([x.label() for x in test_labeled_spectrogram_batch],
                        self.predict(spectrograms=[x.spectrogram() for x in test_labeled_spectrogram_batch]))))
 
@@ -209,8 +205,8 @@ class Wav2Letter:
         return "weights-epoch{}.h5".format(epoch)
 
     def create_callbacks(self, callback: Callable[[], None], tensor_board_log_directory: Path, net_directory: Path,
-                         callback_step: int = 1, save_step: int = 1) -> List[keras.callbacks.Callback]:
-        class CustomCallback(keras.callbacks.Callback):
+                         callback_step: int = 1, save_step: int = 1) -> List[Callback]:
+        class CustomCallback(Callback):
             def on_epoch_end(self_callback, epoch, logs=()):
                 if epoch % callback_step == 0:
                     callback()
@@ -221,7 +217,7 @@ class Wav2Letter:
 
                     self.predictive_net.save_weights(str(net_directory / self.model_file_name(epoch)))
 
-        tensor_board = keras.callbacks.TensorBoard(log_dir=str(tensor_board_log_directory), write_images=True)
+        tensor_board = TensorBoard(log_dir=str(tensor_board_log_directory), write_images=True)
         return [tensor_board, CustomCallback()]
 
     def _input_batch_and_prediction_lengths(self, spectrograms: List[ndarray]):
@@ -241,7 +237,7 @@ class Wav2Letter:
         input_batch, prediction_lengths = self._input_batch_and_prediction_lengths(spectrograms)
 
         # Sets learning phase to training to enable dropout (see backend.learning_phase documentation for more info):
-        training_phase_flag_tensor = numpy.array([True])
+        training_phase_flag_tensor = array([True])
         return {
             Wav2Letter.InputNames.input_batch: input_batch,
             Wav2Letter.InputNames.prediction_lengths: reshape(array(prediction_lengths),

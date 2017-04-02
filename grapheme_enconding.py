@@ -1,13 +1,14 @@
 import string
 from itertools import groupby
+
+from numpy import argmax, ones, ndarray, array
 from typing import List
 
-from numpy import argmax, ones, amax
-from numpy.core.multiarray import ndarray, array
-
+frequent_characters_in_english = list(string.ascii_lowercase + " '")
+frequent_characters_in_german = frequent_characters_in_english + list("äöüß-")
 
 class CtcGraphemeEncoding:
-    def __init__(self, allowed_characters: List[chr] = list(string.ascii_uppercase + " '")):
+    def __init__(self, allowed_characters: List[chr] = frequent_characters_in_english):
         self.graphemes_by_character = dict((char, index) for index, char in enumerate(allowed_characters))
         self.allowed_characters = allowed_characters
         self.grapheme_set_size = len(allowed_characters) + 1

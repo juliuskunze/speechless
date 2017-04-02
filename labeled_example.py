@@ -1,16 +1,15 @@
 import math
-import os
 from enum import Enum
 from pathlib import Path
 from textwrap import wrap
-from typing import List, Callable, Tuple, Optional
 
 import librosa
-import matplotlib.pyplot as plt
 from lazy import lazy
-from matplotlib import ticker
-from matplotlib.ticker import ScalarFormatter
+from matplotlib.ticker import ScalarFormatter, FuncFormatter
 from numpy import ndarray, mean, std, vectorize, dot
+from typing import List, Callable, Tuple, Optional
+
+from tools import name_without_extension
 
 
 class SpectrogramFrequencyScale(Enum):
@@ -44,8 +43,10 @@ class LabeledExample:
                  fourier_window_length: int = 512,
                  hop_length: int = 128,
                  mel_frequency_count: int = 128,
-                 asserted_sample_rate: int = 16000):
+                 asserted_sample_rate: int = 16000,
+                 original_label_with_tags: Optional[str] = None):
         # The default values for hop_length and fourier_window_length are powers of 2 near the values specified in the wave2letter paper.
+        self.original_label_with_tags = original_label_with_tags
         self.id = id
         self.get_raw_sound_and_sample_rate = get_raw_sound_and_sample_rate
         self.label = label
@@ -60,16 +61,22 @@ class LabeledExample:
                   fourier_window_length: int = 512,
                   hop_length: int = 128,
                   mel_frequency_count: int = 128,
-                  asserted_sample_rate: int = 16000) -> 'LabeledExample':
+                  asserted_sample_rate: int = 16000,
+                  original_label_with_tags_from_id: Callable[[str], Optional[str]] = lambda
+                          id: None) -> 'LabeledExample':
         if id is None:
-            id = os.path.splitext(audio_file.name)[0]
+            id = name_without_extension(audio_file)
 
         return LabeledExample(id=id, get_raw_sound_and_sample_rate=lambda: librosa.load(str(audio_file), sr=None),
                               label=label_from_id(id),
                               fourier_window_length=fourier_window_length,
                               hop_length=hop_length,
                               mel_frequency_count=mel_frequency_count,
-                              asserted_sample_rate=asserted_sample_rate)
+                              asserted_sample_rate=asserted_sample_rate,
+                              original_label_with_tags=original_label_with_tags_from_id(id))
+
+    def contains_tag(self, tag: str) -> bool:
+        return tag in self.original_label_with_tags
 
     @lazy
     def raw_audio_and_sample_rate(self) -> (ndarray, int):
@@ -110,6 +117,8 @@ class LabeledExample:
         self._plot_audio(self.raw_audio)
 
     def _plot_audio(self, audio: ndarray) -> None:
+        import matplotlib.pyplot as plt
+
         plt.title(str(self))
         plt.xlabel("time / samples (sample rate {}Hz)".format(self.sample_rate))
         plt.ylabel("y")
@@ -117,12 +126,16 @@ class LabeledExample:
         plt.show()
 
     def show_spectrogram(self, type: SpectrogramType = SpectrogramType.power_level):
+        import matplotlib.pyplot as plt
+
         self.prepare_spectrogram_plot(type)
         plt.show()
 
     def save_spectrogram(self, target_directory: Path,
                          type: SpectrogramType = SpectrogramType.power_level,
                          frequency_scale: SpectrogramFrequencyScale = SpectrogramFrequencyScale.linear) -> Path:
+        import matplotlib.pyplot as plt
+
         self.prepare_spectrogram_plot(type, frequency_scale)
         path = Path(target_directory, "{}_{}{}_spectrogram.png".format(self.id,
                                                                        "mel_" if frequency_scale == SpectrogramFrequencyScale.mel else "",
@@ -170,6 +183,8 @@ class LabeledExample:
 
     def prepare_spectrogram_plot(self, type: SpectrogramType = SpectrogramType.power_level,
                                  frequency_scale: SpectrogramFrequencyScale = SpectrogramFrequencyScale.linear) -> None:
+        import matplotlib.pyplot as plt
+
         spectrogram = self.spectrogram(type, frequency_scale=frequency_scale)
 
         figure, axes = plt.subplots(1, 1)
@@ -193,7 +208,7 @@ class LabeledExample:
 
         axes.xaxis.set_major_formatter(ScalarFormatterWithUnit("s"))
         axes.yaxis.set_major_formatter(
-            ticker.FuncFormatter(lambda value, pos: "{}mel = {}Hz".format(int(value), int(
+            FuncFormatter(lambda value, pos: "{}mel = {}Hz".format(int(value), int(
                 librosa.mel_to_hz(value)[0]))) if use_mel else ScalarFormatterWithUnit("Hz"))
         figure.set_size_inches(19.20, 10.80)
 

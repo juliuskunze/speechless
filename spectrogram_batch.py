@@ -1,10 +1,10 @@
 import random
-from os import makedirs
 from pathlib import Path
-from typing import Callable, List, Iterable
 
 import numpy
 from numpy.core.multiarray import ndarray
+from os import makedirs
+from typing import Callable, List, Iterable
 
 from labeled_example import LabeledExample
 from net import LabeledSpectrogram
@@ -64,5 +64,5 @@ class LabeledSpectrogramBatchGenerator:
         while True:
             yield random.sample(self.labeled_spectrograms, self.batch_size)
 
-    def as_test_batches(self) -> Iterable[List[LabeledSpectrogram]]:
+    def as_validation_batches(self) -> Iterable[List[LabeledSpectrogram]]:
         return paginate(self.labeled_spectrograms, self.batch_size)

@@ -1,6 +1,3 @@
-# Instead of adding silence at start and end of recording (values=0) I add the original audio . This makes audio sound more natural as volume is >0. See trim()
-# I also fixed issue with the previous code - accumulated silence counter needs to be cleared once recording is resumed.
-
 import array
 from itertools import dropwhile
 from pathlib import Path
@@ -8,7 +5,7 @@ from sys import byteorder
 
 import librosa
 import numpy
-from numpy import ndarray, abs, max, flipud
+from numpy import ndarray, abs, max, flipud, concatenate
 
 from labeled_example import LabeledExample
 
@@ -87,7 +84,7 @@ class Recorder:
 
         p.terminate()
 
-        return self._normalize(self._trim_silence(numpy.concatenate(chunks)))
+        return self._normalize(self._trim_silence(concatenate(chunks)))
 
     def record_to_file(self, path: Path) -> LabeledExample:
         "Records from the microphone and outputs the resulting data to 'path'. Returns a labeled example for analysis."

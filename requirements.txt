@@ -1,4 +1,3 @@
 lazy
 librosa
 keras
-matplotlib

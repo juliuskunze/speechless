@@ -1,29 +1,28 @@
-import time
-from os import makedirs, path
 from pathlib import Path
-
-from numpy import *
+from time import strftime
 
 from corpus_provider import CorpusProvider
+from german_corpus_provider import german_corpus_names_sorted_by_size, german_corpus_provider
 from labeled_example import LabeledExample
 from net import Wav2Letter
 from recording import Recorder
 from spectrogram_batch import LabeledSpectrogramBatchGenerator
+from tools import mkdir, home_directory
 
-base_directory = Path(path.expanduser('~')) / "speechless-data"
+base_directory = home_directory() / "speechless-data"
 base_spectrogram_directory = base_directory / "spectrograms"
 
-# not Path.mkdir() for compatibility with Python 3.4
-makedirs(str(base_spectrogram_directory), exist_ok=True)
+mkdir(base_spectrogram_directory)
 tensorboard_log_base_directory = base_directory / "logs"
 nets_base_directory = base_directory / "nets"
 recording_directory = base_directory / "recordings"
 corpus_directory = base_directory / "corpus"
+german_corpus_directory = base_directory / "german-corpus"
 spectrogram_cache_directory = base_directory / "spectrogram-cache" / "mel"
 
 
 def timestamp() -> str:
-    return time.strftime("%Y%m%d-%H%M%S")
+    return strftime("%Y%m%d-%H%M%S")
 
 
 def train_wav2letter(mel_frequency_count: int = 128) -> None:
@@ -49,8 +48,7 @@ def batch_generator(is_training: bool = True, mel_frequency_count: int = 128) ->
 
 def record() -> LabeledExample:
     print("Wait in silence to begin recording; wait in silence to terminate")
-    # not Path.mkdir() for compatibility with Python 3.4
-    makedirs(str(recording_directory), exist_ok=True)
+    mkdir(recording_directory)
     name = "recording-{}".format(timestamp())
     example = Recorder().record_to_file(recording_directory / "{}.wav".format(name))
     example.save_spectrogram(recording_directory)
@@ -88,12 +86,12 @@ def predict_recording() -> None:
     print_example_predictions()
 
 
-def evaluate_best_model():
+def validate_best_model():
     wav2_letter = load_best_wav2letter_model()
 
     generator = batch_generator(is_training=False)
 
-    print(wav2_letter.loss(generator.as_test_batches()))
+    print(wav2_letter.loss(generator.as_validation_batches()))
 
 
 def load_best_wav2letter_model(mel_frequency_count: int = 128):
@@ -103,4 +101,9 @@ def load_best_wav2letter_model(mel_frequency_count: int = 128):
         load_epoch=1689)
 
 
-train_wav2letter()
+def summarize_german_corpus(corpus_count: int = len(german_corpus_names_sorted_by_size)) -> None:
+    for corpus_name in german_corpus_names_sorted_by_size[:corpus_count]:
+        print(german_corpus_provider(german_corpus_directory, [corpus_name]).summary())
+
+
+summarize_german_corpus()
