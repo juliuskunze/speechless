@@ -1,3 +1,4 @@
+import re
 import subprocess
 import tarfile
 from functools import reduce
@@ -5,29 +6,16 @@ from pathlib import Path
 from tarfile import *
 
 from collections import OrderedDict
-from typing import List, Iterable, Optional, Dict, Callable
+from typing import List, Iterable, Optional, Dict
 from urllib import request
 
 from grapheme_enconding import frequent_characters_in_english
 from labeled_example import LabeledExample
-from tools import mkdir, distinct
+from tools import mkdir, distinct, name_without_extension
 
 
 class ParsingException(Exception):
     pass
-
-
-def _extract_labels_by_id_from_txt(files: Iterable[Path]) -> Dict[str, str]:
-    label_files = [file for file in files if file.name.endswith(".txt")]
-    labels_by_id = dict()
-    for label_file in label_files:
-        with label_file.open() as f:
-            for line in f.readlines():
-                parts = line.split()
-                id = parts[0]
-                label = " ".join(parts[1:])
-                labels_by_id[id] = label.lower()
-    return labels_by_id
 
 
 class CorpusProvider:
@@ -41,10 +29,10 @@ class CorpusProvider:
                  subdirectory_depth: int = 2,
                  allowed_characters: List[chr] = frequent_characters_in_english,
                  tags_to_ignore: Iterable[str] = list(),
-                 labels_by_id_extractor: Callable[[Iterable[Path]], Dict[str, str]] = _extract_labels_by_id_from_txt):
+                 id_filter_regex=re.compile('[\s\S]*')):
+        self.id_filter_regex = id_filter_regex
         self.tags_to_ignore = tags_to_ignore
         self.allowed_characters = allowed_characters
-        self.labels_by_id_extractor = labels_by_id_extractor
         self.subdirectory_depth = subdirectory_depth
         self.root_compressed_directory_name_to_skip = root_compressed_directory_name_to_skip
         self.base_directory = base_directory
@@ -55,10 +43,7 @@ class CorpusProvider:
         mkdir(base_directory)
         self.corpus_directories = [self._download_and_unpack_if_not_yet_done(corpus_name=corpus_name) for corpus_name in
                                    corpus_names]
-        self.examples = self._get_examples()
-        self.examples_by_id = dict([(e.id, e) for e in self.examples])
 
-    def _get_examples(self) -> List[LabeledExample]:
         directories = self.corpus_directories
         for i in range(self.subdirectory_depth):
             directories = [subdirectory
@@ -68,14 +53,18 @@ class CorpusProvider:
         files = [file
                  for directory in directories
                  for file in directory.iterdir() if file.is_file()]
-        audio_files = [file for file in files if file.name.endswith(".flac") or file.name.endswith(".wav")]
 
-        labels_with_tags_by_id = self.labels_by_id_extractor(files)
-        if len(audio_files) != len(labels_with_tags_by_id):
-            raise ParsingException(
-                "Found {} audio files, but {} labels in corpus {}.".format(len(audio_files),
-                                                                           len(labels_with_tags_by_id),
-                                                                           self.corpus_names))
+        self.unfiltered_audio_files = [file for file in files if
+                                       (file.name.endswith(".flac") or file.name.endswith(".wav"))]
+        audio_files = [file for file in self.unfiltered_audio_files if
+                       self.id_filter_regex.match(name_without_extension(file))]
+        self.filtered_out_count = len(self.unfiltered_audio_files) - len(audio_files)
+
+        labels_with_tags_by_id = self._extract_labels_by_id(files)
+        found_audio_ids = set(name_without_extension(f) for f in audio_files)
+        found_label_ids = labels_with_tags_by_id.keys()
+        self.audio_ids_without_label = list(found_audio_ids - found_label_ids)
+        self.label_ids_without_audio = list(found_label_ids - found_audio_ids)
 
         def example(audio_file: Path) -> LabeledExample:
             return LabeledExample.from_file(audio_file, label_from_id=lambda id: self._remove_tags_to_ignore(
@@ -83,7 +72,10 @@ class CorpusProvider:
                                             mel_frequency_count=self.mel_frequency_count,
                                             original_label_with_tags_from_id=lambda id: labels_with_tags_by_id[id])
 
-        return sorted([example(file) for file in audio_files], key=lambda x: x.id)
+        self.examples = sorted(
+            [example(file) for file in audio_files if name_without_extension(file) in labels_with_tags_by_id.keys()],
+            key=lambda x: x.id)
+        self.examples_by_id = dict([(e.id, e) for e in self.examples])
 
     def _remove_tags_to_ignore(self, text: str) -> str:
         return reduce(lambda text, tag: text.replace(tag, ""), self.tags_to_ignore, text)
@@ -124,9 +116,21 @@ class CorpusProvider:
                 try:
                     subprocess.check_output(["scp", source_path_or_url, str(target_path)], stderr=subprocess.STDOUT)
                 except subprocess.CalledProcessError as e:
-                    raise ParsingException("Copying failed: " + str(e.output))
+                    raise IOError("Copying failed: " + str(e.output))
 
         return target_path
+
+    def _extract_labels_by_id(self, files: Iterable[Path]) -> Dict[str, str]:
+        label_files = [file for file in files if file.name.endswith(".txt")]
+        labels_by_id = dict()
+        for label_file in label_files:
+            with label_file.open() as f:
+                for line in f.readlines():
+                    parts = line.split()
+                    id = parts[0]
+                    label = " ".join(parts[1:])
+                    labels_by_id[id] = label.lower()
+        return labels_by_id
 
     def is_allowed(self, label: str) -> bool:
         return all(c in self.allowed_characters for c in label)
@@ -145,8 +149,20 @@ class CorpusProvider:
 
         empty_examples = [example for example in self.examples if example.label == ""]
 
-        return "{}:\n{} {} total with {} invalid, {} empty, {} duplicate\n Examples that had special tags: {}\n".format(
+        return "{}:\n{}{}{}{} {} total with {} invalid, {} empty, {} duplicate\n Examples that had special tags: {}\n".format(
             " ".join(self.corpus_names),
+            " Originally found {} audio files, {} were filtered out with regex {}\n".format(
+                len(self.unfiltered_audio_files), self.filtered_out_count,
+                self.id_filter_regex) if self.filtered_out_count > 0 else "",
+
+            " Found {} audio files without match label; will be excluded, e. g. {}.\n".format(
+                len(self.audio_ids_without_label), self.audio_ids_without_label[:10]) if len(
+                self.audio_ids_without_label) > 0 else "",
+
+            " Found {} labels without matching audio file; will be excluded, e. g. {}.\n".format(
+                len(self.label_ids_without_audio), self.label_ids_without_audio[:10]) if len(
+                self.label_ids_without_audio) > 0 else "",
+
             "".join([e + '\n' for e in invalid_examples]),
             len(self.examples),
             len(invalid_examples),

@@ -2,7 +2,7 @@ from pathlib import Path
 from time import strftime
 
 from corpus_provider import CorpusProvider
-from german_corpus_provider import german_corpus_names_sorted_by_size, german_corpus_provider
+from german_corpus_provider import GermanCorpusProvider, german_corpus_definitions_sorted_by_size
 from labeled_example import LabeledExample
 from net import Wav2Letter
 from recording import Recorder
@@ -101,9 +101,9 @@ def load_best_wav2letter_model(mel_frequency_count: int = 128):
         load_epoch=1689)
 
 
-def summarize_german_corpus(corpus_count: int = len(german_corpus_names_sorted_by_size)) -> None:
-    for corpus_name in german_corpus_names_sorted_by_size[:corpus_count]:
-        print(german_corpus_provider(german_corpus_directory, [corpus_name]).summary())
+def summarize_german_corpus() -> None:
+    for corpus_name in german_corpus_definitions_sorted_by_size:
+        print(GermanCorpusProvider(german_corpus_directory, corpus_name).summary())
 
 
 summarize_german_corpus()
