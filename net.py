@@ -45,7 +45,9 @@ class Wav2Letter:
                  optimizer: Optimizer = Adam(1e-4),
                  dropout: float = None,
                  load_model_from_directory: Path = None,
-                 load_epoch: int = None):
+                 load_epoch: int = None,
+                 frozen_layer_count: int = 0):
+        self.frozen_layer_count = frozen_layer_count
         self.output_activation = output_activation
         self.activation = activation
         self.use_raw_wave_input = use_raw_wave_input
@@ -100,10 +102,12 @@ class Wav2Letter:
                             activation=self.output_activation, never_dropout=True)
             ] for layer in conv]
 
-        return Sequential(
-            input_convolutions() +
-            inner_convolutions() +
-            output_convolutions())
+        layers = input_convolutions() + inner_convolutions() + output_convolutions()
+
+        for layer in layers[:self.frozen_layer_count]:
+            layer.trainable = False
+
+        return Sequential(layers)
 
     @lazy
     def input_to_prediction_length_ratio(self):
