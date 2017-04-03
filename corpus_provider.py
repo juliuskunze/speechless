@@ -1,17 +1,18 @@
+import random
 import re
 import subprocess
 import tarfile
 from functools import reduce
+from itertools import repeat
 from pathlib import Path
 from tarfile import *
 
-from collections import OrderedDict
 from typing import List, Iterable, Optional, Dict
 from urllib import request
 
 from grapheme_enconding import frequent_characters_in_english
 from labeled_example import LabeledExample
-from tools import mkdir, distinct, name_without_extension
+from tools import mkdir, distinct, name_without_extension, extension, count_summary
 
 
 class ParsingException(Exception):
@@ -41,6 +42,7 @@ class CorpusProvider:
         self.mel_frequency_count = mel_frequency_count
         self.corpus_names = corpus_names
         mkdir(base_directory)
+
         self.corpus_directories = [self._download_and_unpack_if_not_yet_done(corpus_name=corpus_name) for corpus_name in
                                    corpus_names]
 
@@ -50,17 +52,17 @@ class CorpusProvider:
                            for directory in directories
                            for subdirectory in directory.iterdir() if subdirectory.is_dir()]
 
-        files = [file
-                 for directory in directories
-                 for file in directory.iterdir() if file.is_file()]
+        self.files = [file
+                      for directory in directories
+                      for file in directory.iterdir() if file.is_file()]
 
-        self.unfiltered_audio_files = [file for file in files if
+        self.unfiltered_audio_files = [file for file in self.files if
                                        (file.name.endswith(".flac") or file.name.endswith(".wav"))]
         audio_files = [file for file in self.unfiltered_audio_files if
                        self.id_filter_regex.match(name_without_extension(file))]
         self.filtered_out_count = len(self.unfiltered_audio_files) - len(audio_files)
 
-        labels_with_tags_by_id = self._extract_labels_by_id(files)
+        labels_with_tags_by_id = self._extract_labels_by_id(self.files)
         found_audio_ids = set(name_without_extension(f) for f in audio_files)
         found_label_ids = labels_with_tags_by_id.keys()
         self.audio_ids_without_label = list(found_audio_ids - found_label_ids)
@@ -141,31 +143,40 @@ class CorpusProvider:
                 distinct([c for c in x.label if c not in self.allowed_characters]), str(x))
             for x in self.examples if not self.is_allowed(x.label)]
 
-        example_count_by_tag = OrderedDict(
-            [(tag, len([example for example in self.examples if example.contains_tag(tag)])) for tag in
-             self.tags_to_ignore])
+        tags = [counted_tag
+                for example in self.examples
+                for tag in self.tags_to_ignore
+                for counted_tag in repeat(tag, example.tag_count(tag))]
 
         duplicate_label_count = len(self.examples) - len(set(e.label for e in self.examples))
 
         empty_examples = [example for example in self.examples if example.label == ""]
 
-        return "{}:\n{}{}{}{} {} total with {} invalid, {} empty, {} duplicate\n Examples that had special tags: {}\n".format(
+        file_extensions = [extension(file)
+                           for directory in self.corpus_directories
+                           for file in directory.glob('**/*.*') if file.is_file()]
+
+        tags_summary = count_summary(tags)
+        original_sample_rates = [example.original_sample_rate for example in random.sample(self.examples, 50)]
+        return "{}:\n File types: {}\n{}{}{}{}{} {} extracted examples, of them {} invalid, {} empty, {} duplicate.\n Orignal sample rates of 50 random examples: {}\n".format(
             " ".join(self.corpus_names),
-            " Originally found {} audio files, {} were filtered out with regex {}\n".format(
+            count_summary(file_extensions),
+            " Out of {} audio files, {} were excluded by regex {}\n".format(
                 len(self.unfiltered_audio_files), self.filtered_out_count,
                 self.id_filter_regex) if self.filtered_out_count > 0 else "",
 
-            " Found {} audio files without match label; will be excluded, e. g. {}.\n".format(
+            " {} audio files without match label; will be excluded, e. g. {}.\n".format(
                 len(self.audio_ids_without_label), self.audio_ids_without_label[:10]) if len(
                 self.audio_ids_without_label) > 0 else "",
 
-            " Found {} labels without matching audio file; will be excluded, e. g. {}.\n".format(
+            " {} labels without matching audio file; will be excluded, e. g. {}.\n".format(
                 len(self.label_ids_without_audio), self.label_ids_without_audio[:10]) if len(
                 self.label_ids_without_audio) > 0 else "",
 
             "".join([e + '\n' for e in invalid_examples]),
+            " Removed label tags: {}\n".format(tags_summary) if tags_summary != "" else "",
             len(self.examples),
             len(invalid_examples),
             len(empty_examples),
             duplicate_label_count,
-            ", ".join(["{}: {}".format(tag, count) for tag, count in example_count_by_tag.items() if count != 0]))
+            count_summary(original_sample_rates))

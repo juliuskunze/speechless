@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from collections import OrderedDict
+from collections import OrderedDict, Counter
 from os import makedirs, path
 from typing import List, Any
 
@@ -43,5 +43,13 @@ def name_without_extension(audio_file: Path) -> str:
     return path.splitext(audio_file.name)[0]
 
 
+def extension(audio_file: Path) -> str:
+    return path.splitext(audio_file.name)[1]
+
+
 def distinct(sequence: List) -> List:
     return list(OrderedDict.fromkeys(sequence))
+
+
+def count_summary(list: List) -> str:
+    return ", ".join(["{}: {}".format(tag, count) for tag, count in Counter(list).most_common()])

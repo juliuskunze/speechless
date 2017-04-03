@@ -57,14 +57,15 @@ german_corpus_definitions_sorted_by_size = [
                      umlaut_decoder=UmlautDecoder.try_quote_before_umlaut_then_after),
     CorpusDefinition("all.HEMPEL.4.cmdi.11610.1490680796"),
     CorpusDefinition("all.WaSeP.1.cmdi.21704.1490682398"),
-    # CorpusDefinition("all.aGender.1.cmdi.17072.1490632949"), contains only ".raw" files
-    # CorpusDefinition("all.VMEmo.1.cmdi.7826.1490627109"), contains only .nis, and .tra files
+    CorpusDefinition("all.aGender.1.cmdi.17072.1490632949"),  # contains only ".raw" files
+    CorpusDefinition("all.VMEmo.1.cmdi.7826.1490627109"),  # contains only ".deo", ".nis", and ".tra" files
     CorpusDefinition("all.BROTHERS.2.cmdi.23213.1490683025"),
     CorpusDefinition("all.PD1.3.cmdi.16312.1490681066"),
     CorpusDefinition("all.VM1.3.cmdi.1508.1490625070", id_filter_regex=vm_id_German_filter_regex),
-    # CorpusDefinition("all.RVG-J.1.cmdi.18181.1490681704"), contains only ".raw" files
+    CorpusDefinition("all.RVG-J.1.cmdi.18181.1490681704"),  # contains only ".par" and ".wav" files
     CorpusDefinition("all.HOESI.2.cmdi.15856.1490680893"),
-    # CorpusDefinition("all.RVG1_CLARIN.2.cmdi.19707.1490681833"), contains only ".raw" files
+    CorpusDefinition("all.RVG1_CLARIN.2.cmdi.19707.1490681833"),
+    # contains only ".trl", ".nis", ".par" and ".txt" files
     CorpusDefinition("all.ALC.4.cmdi.16602.1490632862"),
     CorpusDefinition("all.VM2.3.cmdi.4260.1490625316", id_filter_regex=vm_id_German_filter_regex)
 ]
@@ -75,7 +76,7 @@ class GermanCorpusProvider(CorpusProvider):
     Parses the labeled German speech data downloadable from https://clarin.phonetik.uni-muenchen.de/BASRepository/.
     """
 
-    def __init__(self, base_directory: Path, corpus_definition: CorpusDefinition):
+    def __init__(self, base_directory: Path, corpus_definition: CorpusDefinition, mel_frequency_count: int = 128):
         self.corpus_definition = corpus_definition
         super().__init__(base_directory=base_directory,
                          base_source_url_or_directory="ketos:/data/mlcog/german_speech/",
@@ -85,7 +86,8 @@ class GermanCorpusProvider(CorpusProvider):
                          subdirectory_depth=1,
                          allowed_characters=frequent_characters_in_german,
                          tags_to_ignore=_tags_to_ignore,
-                         id_filter_regex=corpus_definition.id_filter_regex)
+                         id_filter_regex=corpus_definition.id_filter_regex,
+                         mel_frequency_count=mel_frequency_count)
 
     def _extract_label_from_par(self, par_file: Path) -> str:
         par_text = read_text(par_file, encoding='utf8')

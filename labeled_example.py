@@ -3,11 +3,13 @@ from enum import Enum
 from pathlib import Path
 from textwrap import wrap
 
+import audioread
 import librosa
+import os
 from lazy import lazy
 from matplotlib.ticker import ScalarFormatter, FuncFormatter
 from numpy import ndarray, mean, std, vectorize, dot
-from typing import List, Callable, Tuple, Optional
+from typing import List, Callable, Optional
 
 from tools import name_without_extension
 
@@ -38,62 +40,65 @@ def z_normalize(array: ndarray) -> ndarray:
 
 class LabeledExample:
     def __init__(self, id: str,
-                 get_raw_sound_and_sample_rate: Callable[[], Tuple[ndarray, int]],
+                 get_raw_audio: Callable[[], ndarray],
                  label: Optional[str],
                  fourier_window_length: int = 512,
                  hop_length: int = 128,
                  mel_frequency_count: int = 128,
-                 asserted_sample_rate: int = 16000,
-                 original_label_with_tags: Optional[str] = None):
+                 sample_rate: int = 16000,
+                 original_label_with_tags: Optional[str] = None,
+                 get_original_sample_rate: Callable[[], Optional[int]] = lambda: None):
         # The default values for hop_length and fourier_window_length are powers of 2 near the values specified in the wave2letter paper.
-        self.original_label_with_tags = original_label_with_tags
+        self.sample_rate = sample_rate
         self.id = id
-        self.get_raw_sound_and_sample_rate = get_raw_sound_and_sample_rate
+        self._get_raw_audio = get_raw_audio
         self.label = label
-        self.assert_sample_rate = asserted_sample_rate
         self.fourier_window_length = fourier_window_length
         self.hop_length = hop_length
         self.mel_frequency_count = mel_frequency_count
+        self.original_label_with_tags = original_label_with_tags
+        self._get_original_sample_rate = get_original_sample_rate
 
     @staticmethod
     def from_file(audio_file: Path, id: Optional[str] = None,
+                  sample_rate_to_convert_to: int = 16000,
                   label_from_id: Callable[[str], Optional[str]] = lambda id: None,
                   fourier_window_length: int = 512,
                   hop_length: int = 128,
                   mel_frequency_count: int = 128,
-                  asserted_sample_rate: int = 16000,
-                  original_label_with_tags_from_id: Callable[[str], Optional[str]] = lambda
-                          id: None) -> 'LabeledExample':
+                  original_label_with_tags_from_id: Callable[[str], Optional[str]] = lambda id: None
+                  ) -> 'LabeledExample':
         if id is None:
             id = name_without_extension(audio_file)
 
-        return LabeledExample(id=id, get_raw_sound_and_sample_rate=lambda: librosa.load(str(audio_file), sr=None),
+        def get_original_sample_rate():
+            with audioread.audio_open(os.path.realpath(str(audio_file))) as input_file:
+                return input_file.samplerate
+
+        def get_raw_audio():
+            y, sample_rate = librosa.load(str(audio_file), sr=sample_rate_to_convert_to)
+
+            return y
+
+        return LabeledExample(id=id, get_raw_audio=get_raw_audio,
+                              sample_rate=sample_rate_to_convert_to,
                               label=label_from_id(id),
                               fourier_window_length=fourier_window_length,
                               hop_length=hop_length,
                               mel_frequency_count=mel_frequency_count,
-                              asserted_sample_rate=asserted_sample_rate,
+                              get_original_sample_rate=get_original_sample_rate,
                               original_label_with_tags=original_label_with_tags_from_id(id))
 
-    def contains_tag(self, tag: str) -> bool:
-        return tag in self.original_label_with_tags
+    def tag_count(self, tag: str) -> int:
+        return self.original_label_with_tags.count(tag)
 
     @lazy
-    def raw_audio_and_sample_rate(self) -> (ndarray, int):
-        y, sr = self.get_raw_sound_and_sample_rate()
-
-        if self.assert_sample_rate is not None:
-            assert (self.assert_sample_rate == sr)
-
-        return y, sr
+    def original_sample_rate(self) -> int:
+        return self._get_original_sample_rate()
 
     @lazy
     def raw_audio(self) -> ndarray:
-        return self.raw_audio_and_sample_rate[0]
-
-    @lazy
-    def sample_rate(self) -> int:
-        return self.raw_audio_and_sample_rate[1]
+        return self._get_raw_audio()
 
     def _power_spectrogram(self) -> ndarray:
         return self._amplitude_spectrogram() ** 2
