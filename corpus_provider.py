@@ -157,8 +157,9 @@ class CorpusProvider:
                            for file in directory.glob('**/*.*') if file.is_file()]
 
         tags_summary = count_summary(tags)
-        original_sample_rates = [example.original_sample_rate for example in random.sample(self.examples, 50)]
-        return "{}:\n File types: {}\n{}{}{}{}{} {} extracted examples, of them {} invalid, {} empty, {} duplicate.\n Orignal sample rates of 50 random examples: {}\n".format(
+        some_original_sample_rates = [example.original_sample_rate for example in
+                                      random.sample(self.examples, min(50, len(self.examples)))]
+        return "{}:\n File types: {}\n{}{}{}{}{} {} extracted examples, of them {} invalid, {} empty, {} duplicate.\n Original sample rates of some random examples: {}\n".format(
             " ".join(self.corpus_names),
             count_summary(file_extensions),
             " Out of {} audio files, {} were excluded by regex {}\n".format(
@@ -179,4 +180,4 @@ class CorpusProvider:
             len(invalid_examples),
             len(empty_examples),
             duplicate_label_count,
-            count_summary(original_sample_rates))
+            count_summary(some_original_sample_rates))

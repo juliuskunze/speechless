@@ -47,7 +47,31 @@ class CorpusDefinition:
         self.name = name
 
 
-vm_id_German_filter_regex = re.compile("g[\s\S]*|m[\s\S]*_GER")
+# from the VM1 readme:
+# K = German, same room, no push button
+# L = German, separated room, no push button
+# M = Geramn, separated room, push button
+# N = German, same room, push button
+# G = German, separated room, push button
+# Q = same as M but 'Denglisch'
+# (Germans speaking English)
+# R = same as N but American English
+# (recording site 'C') or
+# 'Denglish' (recording site 'K')
+# Z = German, test recording in the
+# szenario 'travel planning'
+# by TP 13 Hamburg
+# J = same as G but extended scenario of
+# 1995, 1996
+# S = same as M but mixed German-English
+# W = same as M but with a Wizard
+# Y = Japanese, same room, push button
+vm1_id_German_filter_regex = re.compile("[klmngzjw][\s\S]*")
+
+# from the VM2 readme:
+# g(erman), e(nglish), j(apanese), m(ultilingual), n(oise)
+vm2_id_German_filter_regex = re.compile("g[\s\S]*|m[\s\S]*_GER")
+
 german_corpus_definitions_sorted_by_size = [
     CorpusDefinition("all.SC1.3.cmdi.15010.1490631864", umlaut_decoder=UmlautDecoder.quote_after_umlaut),
     CorpusDefinition("all.PD2.4.cmdi.16693.1490681127"),
@@ -61,13 +85,13 @@ german_corpus_definitions_sorted_by_size = [
     CorpusDefinition("all.VMEmo.1.cmdi.7826.1490627109"),  # contains only ".deo", ".nis", and ".tra" files
     CorpusDefinition("all.BROTHERS.2.cmdi.23213.1490683025"),
     CorpusDefinition("all.PD1.3.cmdi.16312.1490681066"),
-    CorpusDefinition("all.VM1.3.cmdi.1508.1490625070", id_filter_regex=vm_id_German_filter_regex),
+    CorpusDefinition("all.VM1.3.cmdi.1508.1490625070", id_filter_regex=vm1_id_German_filter_regex),
     CorpusDefinition("all.RVG-J.1.cmdi.18181.1490681704"),  # contains only ".par" and ".wav" files
     CorpusDefinition("all.HOESI.2.cmdi.15856.1490680893"),
     CorpusDefinition("all.RVG1_CLARIN.2.cmdi.19707.1490681833"),
     # contains only ".trl", ".nis", ".par" and ".txt" files
     CorpusDefinition("all.ALC.4.cmdi.16602.1490632862"),
-    CorpusDefinition("all.VM2.3.cmdi.4260.1490625316", id_filter_regex=vm_id_German_filter_regex)
+    CorpusDefinition("all.VM2.3.cmdi.4260.1490625316", id_filter_regex=vm2_id_German_filter_regex)
 ]
 
 
