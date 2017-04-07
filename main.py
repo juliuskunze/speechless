@@ -4,23 +4,20 @@ from time import strftime
 from german_corpus_provider import GermanCorpusProvider, german_corpus_definitions_sorted_by_size
 from grapheme_enconding import frequent_characters_in_german
 from labeled_example import LabeledExample
-from net import Wav2Letter
 from recording import Recorder
 from spectrogram_batch import LabeledSpectrogramBatchGenerator
 from tools import mkdir, home_directory
 
 base_directory = home_directory() / "speechless-data"
-base_plots_directory = base_directory / "plots"
-mkdir(base_plots_directory)
-
 tensorboard_log_base_directory = base_directory / "logs"
 nets_base_directory = base_directory / "nets"
 recording_directory = base_directory / "recordings"
-corpus_directory = base_directory / "corpus"
-german_corpus_directory = base_directory / "german-corpus"
-cache_base_directory = base_directory / "spectrogram-cache"
-spectrogram_cache_directory = cache_base_directory / "mel"
-german_spectrogram_cache_directory = cache_base_directory / "german_mel"
+corpus_base_direcory = base_directory / "corpus"
+english_corpus_directory = corpus_base_direcory / "English"
+german_corpus_directory = corpus_base_direcory / "German"
+spectrogram_cache_base_directory = base_directory / "spectrogram-cache"
+english_spectrogram_cache_directory = spectrogram_cache_base_directory / "English"
+german_spectrogram_cache_directory = spectrogram_cache_base_directory / "German"
 
 
 def timestamp() -> str:
@@ -28,6 +25,8 @@ def timestamp() -> str:
 
 
 def train_wav2letter(mel_frequency_count: int = 128) -> None:
+    from net import Wav2Letter
+
     labeled_spectrogram_batch_generator = batch_generator(mel_frequency_count=mel_frequency_count)
 
     wav2letter = Wav2Letter(input_size_per_time_step=mel_frequency_count,
@@ -54,11 +53,13 @@ def batch_generator(is_training: bool = True, mel_frequency_count: int = 128) ->
 
 
 def record() -> LabeledExample:
+    from labeled_example_plotter import LabeledExamplePlotter
+
     print("Wait in silence to begin recording; wait in silence to terminate")
     mkdir(recording_directory)
     name = "recording-{}".format(timestamp())
     example = Recorder().record_to_file(recording_directory / "{}.wav".format(name))
-    example.save_spectrogram(recording_directory)
+    LabeledExamplePlotter(example).save_spectrogram(recording_directory)
 
     return example
 
@@ -101,7 +102,9 @@ def validate_best_model() -> None:
     print(wav2_letter.loss(generator.as_validation_batches()))
 
 
-def load_best_wav2letter_model(mel_frequency_count: int = 128) -> Wav2Letter:
+def load_best_wav2letter_model(mel_frequency_count: int = 128):
+    from net import Wav2Letter
+
     return Wav2Letter(
         input_size_per_time_step=mel_frequency_count,
         load_model_from_directory=Path(nets_base_directory / "20170314-134351-adam-small-learning-rate-complete-95"),

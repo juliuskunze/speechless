@@ -12,7 +12,7 @@ from urllib import request
 
 from grapheme_enconding import frequent_characters_in_english
 from labeled_example import LabeledExample
-from tools import mkdir, distinct, name_without_extension, extension, count_summary
+from tools import mkdir, distinct, name_without_extension, extension, count_summary, single
 
 
 class ParsingException(Exception):
@@ -92,7 +92,7 @@ class CorpusProvider:
             tar_file = self._download_if_not_yet_done(file_url_or_path, self.base_directory / file_name)
             self._unpack_tar_if_not_yet_done(tar_file, target_directory=target_directory)
 
-        return [sub_directory for sub_directory in target_directory.iterdir() if sub_directory.is_dir()][0]
+        return single([sub_directory for sub_directory in target_directory.iterdir() if sub_directory.is_dir()])
 
     def _unpack_tar_if_not_yet_done(self, tar_file: Path, target_directory: Path):
         if not target_directory.is_dir():

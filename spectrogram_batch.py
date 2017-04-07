@@ -1,18 +1,29 @@
 import random
+from abc import ABCMeta, abstractmethod
 from pathlib import Path
 
 import numpy
+from numpy import ndarray
 from numpy.core.multiarray import ndarray
 from os import makedirs
 from typing import Callable, List, Iterable
 
 from labeled_example import LabeledExample
-from net import LabeledSpectrogram
 
 
 def paginate(sequence: List, page_size: int):
     for start in range(0, len(sequence), page_size):
         yield sequence[start:start + page_size]
+
+
+class LabeledSpectrogram:
+    __metaclass__ = ABCMeta
+
+    @abstractmethod
+    def label(self) -> str: raise NotImplementedError
+
+    @abstractmethod
+    def spectrogram(self) -> ndarray: raise NotImplementedError
 
 
 class CachedLabeledSpectrogram(LabeledSpectrogram):

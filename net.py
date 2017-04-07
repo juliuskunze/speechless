@@ -1,4 +1,3 @@
-from abc import ABCMeta, abstractmethod
 from functools import reduce
 from itertools import cycle
 from pathlib import Path
@@ -15,16 +14,7 @@ from os import makedirs
 from typing import List, Callable, Iterable
 
 from grapheme_enconding import CtcGraphemeEncoding, frequent_characters_in_english
-
-
-class LabeledSpectrogram:
-    __metaclass__ = ABCMeta
-
-    @abstractmethod
-    def label(self) -> str: raise NotImplementedError
-
-    @abstractmethod
-    def spectrogram(self) -> ndarray: raise NotImplementedError
+from spectrogram_batch import LabeledSpectrogram
 
 
 class Wav2Letter:
