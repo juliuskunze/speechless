@@ -5,7 +5,7 @@ from numpy import argmax, ones, ndarray, array
 from typing import List
 
 frequent_characters_in_english = list(string.ascii_lowercase + " '")
-frequent_characters_in_german = frequent_characters_in_english + list("äöüß-")
+frequent_characters_in_german = frequent_characters_in_english + list("äöüß")
 
 class CtcGraphemeEncoding:
     def __init__(self, allowed_characters: List[chr] = frequent_characters_in_english):

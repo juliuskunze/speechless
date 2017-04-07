@@ -103,7 +103,7 @@ class GermanCorpusProvider(CorpusProvider):
     def __init__(self, base_directory: Path, corpus_definition: CorpusDefinition, mel_frequency_count: int = 128):
         self.corpus_definition = corpus_definition
         super().__init__(base_directory=base_directory,
-                         base_source_url_or_directory="ketos:/data/mlcog/german_speech/",
+                         base_source_url_or_directory="ketos:/projects/korpora/speech/",
                          corpus_names=[corpus_definition.name],
                          tar_gz_extension=".tgz",
                          root_compressed_directory_name_to_skip=None,
@@ -185,8 +185,10 @@ class GermanCorpusProvider(CorpusProvider):
     def _decode_german(self, text: str) -> str:
         # replace('é', 'e') because of TODO
         # replace('xe4', 'ä') because of F09S1MP-Mikro_Prompt_20 (+7 more): " timo hat b  xe4ten gesagt"
-        # replace('.', ' ') because of all.ALC.4.cmdi.16602.1490632862: 5204018034_h_00 contains "in l.a."
+        # replace('.', ' ') because of ALC: 5204018034_h_00 contains "in l.a."
+        # replace('-', ' ') because of some examples in e. g. ZIPTEL, PD2, SC10 like the following:
+        # SC10: awed5070: "darf ich eine ic-fahrt zwischendurch unterbrechen"
         decoded = self.corpus_definition.umlaut_decoder(
-            text.lower().replace('é', 'e').replace('xe4', 'ä').replace('.', ' '))
+            text.lower().replace('é', 'e').replace('xe4', 'ä').replace('.', ' ').replace('-', ' '))
 
         return decoded
