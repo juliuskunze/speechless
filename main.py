@@ -1,7 +1,8 @@
 from pathlib import Path
 from time import strftime
 
-from german_corpus_provider import GermanCorpusProvider, german_corpus_definitions_sorted_by_size
+from german_corpus_provider import clarin_corpus_providers_sorted_by_size, \
+    GermanVoxforgeCorpusProvider, german_corpus_providers
 from grapheme_enconding import frequent_characters_in_german
 from labeled_example import LabeledExample
 from recording import Recorder
@@ -42,9 +43,8 @@ def train_wav2letter(mel_frequency_count: int = 128) -> None:
 
 
 def batch_generator(is_training: bool = True, mel_frequency_count: int = 128) -> LabeledSpectrogramBatchGenerator:
-    corpus = GermanCorpusProvider(german_corpus_directory,
-                                  corpus_definition=german_corpus_definitions_sorted_by_size[1],
-                                  mel_frequency_count=mel_frequency_count)
+    # TODO use specified mel frequency count
+    corpus = clarin_corpus_providers_sorted_by_size(german_corpus_directory)[1]
     # TODO fix this, sample randomly:
     split_index = int(len(corpus.examples) * .95)
     examples = corpus.examples[:split_index] if is_training else corpus.examples[split_index:]
@@ -112,8 +112,10 @@ def load_best_wav2letter_model(mel_frequency_count: int = 128):
 
 
 def summarize_german_corpus() -> None:
-    for corpus_name in german_corpus_definitions_sorted_by_size:
-        print(GermanCorpusProvider(german_corpus_directory, corpus_name).summary())
+    voxforge = GermanVoxforgeCorpusProvider(german_corpus_directory)
+    print(voxforge.summary())
 
+    for corpus_provider in german_corpus_providers(german_corpus_directory):
+        print(corpus_provider.summary())
 
 summarize_german_corpus()

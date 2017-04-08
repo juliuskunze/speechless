@@ -2,11 +2,12 @@ import json
 import re
 from pathlib import Path
 
-from typing import Iterable, Dict, Callable
+from typing import Iterable, Dict, Callable, Optional, List
+from xml.etree import ElementTree
 
 from corpus_provider import CorpusProvider, ParsingException
 from grapheme_enconding import frequent_characters_in_german
-from tools import read_text, single, single_or_none
+from tools import read_text, single, single_or_none, name_without_extension
 
 _tags_to_ignore = [
     "<usb>",  # truncated in the beginning
@@ -27,6 +28,7 @@ _tags_to_ignore = [
 
 
 class UmlautDecoder:
+    none = lambda text: text
     quote_before_umlaut = lambda text: text. \
         replace('\\"a', 'ä').replace('\\"o', 'ö').replace('\\"u', 'ü').replace('\\"s', 'ß'). \
         replace('"a', 'ä').replace('"o', 'ö').replace('"u', 'ü').replace('"s', 'ß')
@@ -37,80 +39,33 @@ class UmlautDecoder:
         UmlautDecoder.quote_before_umlaut(text))
 
 
-class CorpusDefinition:
-    def __init__(self,
-                 name: str,
-                 umlaut_decoder: Callable[[str], str] = UmlautDecoder.quote_before_umlaut,
-                 id_filter_regex=re.compile('[\s\S]*')):
-        self.id_filter_regex = id_filter_regex
-        self.umlaut_decoder = umlaut_decoder
-        self.name = name
-
-
-# from the VM1 readme:
-# K = German, same room, no push button
-# L = German, separated room, no push button
-# M = Geramn, separated room, push button
-# N = German, same room, push button
-# G = German, separated room, push button
-# Q = same as M but 'Denglisch'
-# (Germans speaking English)
-# R = same as N but American English
-# (recording site 'C') or
-# 'Denglish' (recording site 'K')
-# Z = German, test recording in the
-# szenario 'travel planning'
-# by TP 13 Hamburg
-# J = same as G but extended scenario of
-# 1995, 1996
-# S = same as M but mixed German-English
-# W = same as M but with a Wizard
-# Y = Japanese, same room, push button
-vm1_id_German_filter_regex = re.compile("[klmngzjw][\s\S]*")
-
-# from the VM2 readme:
-# g(erman), e(nglish), j(apanese), m(ultilingual), n(oise)
-vm2_id_German_filter_regex = re.compile("g[\s\S]*|m[\s\S]*_GER")
-
-german_corpus_definitions_sorted_by_size = [
-    CorpusDefinition("all.SC1.3.cmdi.15010.1490631864", umlaut_decoder=UmlautDecoder.quote_after_umlaut),
-    CorpusDefinition("all.PD2.4.cmdi.16693.1490681127"),
-    CorpusDefinition("all.SC2.3.cmdi.13887.1490631070"),
-    CorpusDefinition("all.ZIPTEL.3.cmdi.63058.1490624016"),
-    CorpusDefinition("all.SC10.4.cmdi.13781.1490631055",
-                     umlaut_decoder=UmlautDecoder.try_quote_before_umlaut_then_after),
-    CorpusDefinition("all.HEMPEL.4.cmdi.11610.1490680796"),
-    CorpusDefinition("all.WaSeP.1.cmdi.21704.1490682398"),
-    CorpusDefinition("all.aGender.1.cmdi.17072.1490632949"),  # contains only ".raw" files
-    CorpusDefinition("all.VMEmo.1.cmdi.7826.1490627109"),  # contains only ".deo", ".nis", and ".tra" files
-    CorpusDefinition("all.BROTHERS.2.cmdi.23213.1490683025"),
-    CorpusDefinition("all.PD1.3.cmdi.16312.1490681066"),
-    CorpusDefinition("all.VM1.3.cmdi.1508.1490625070", id_filter_regex=vm1_id_German_filter_regex),
-    CorpusDefinition("all.RVG-J.1.cmdi.18181.1490681704"),  # contains only ".par" and ".wav" files
-    CorpusDefinition("all.HOESI.2.cmdi.15856.1490680893"),
-    CorpusDefinition("all.RVG1_CLARIN.2.cmdi.19707.1490681833"),
-    # contains only ".trl", ".nis", ".par" and ".txt" files
-    CorpusDefinition("all.ALC.4.cmdi.16602.1490632862"),
-    CorpusDefinition("all.VM2.3.cmdi.4260.1490625316", id_filter_regex=vm2_id_German_filter_regex)
-]
-
-
-class GermanCorpusProvider(CorpusProvider):
+class GermanClarinCorpusProvider(CorpusProvider):
     """
     Parses the labeled German speech data downloadable from https://clarin.phonetik.uni-muenchen.de/BASRepository/.
     """
 
-    def __init__(self, base_directory: Path, corpus_definition: CorpusDefinition, mel_frequency_count: int = 128):
-        self.corpus_definition = corpus_definition
+    def __init__(self,
+                 corpus_name: str,
+                 base_directory: Path,
+                 base_source_url_or_directory: str = "ketos:/projects/korpora/speech/",
+                 umlaut_decoder: Callable[[str], str] = UmlautDecoder.quote_before_umlaut,
+                 tar_gz_extension: str = ".tgz",
+                 mel_frequency_count: int = 128,
+                 root_compressed_directory_name_to_skip: Optional[str] = None,
+                 subdirectory_depth: int = 2,
+                 tags_to_ignore: Iterable[str] = _tags_to_ignore,
+                 id_filter_regex=re.compile('[\s\S]*')):
+        self.umlaut_decoder = umlaut_decoder
+
         super().__init__(base_directory=base_directory,
-                         base_source_url_or_directory="ketos:/projects/korpora/speech/",
-                         corpus_names=[corpus_definition.name],
-                         tar_gz_extension=".tgz",
-                         root_compressed_directory_name_to_skip=None,
-                         subdirectory_depth=1,
+                         base_source_url_or_directory=base_source_url_or_directory,
+                         corpus_names=[corpus_name],
+                         tar_gz_extension=tar_gz_extension,
+                         root_compressed_directory_name_to_skip=root_compressed_directory_name_to_skip,
+                         subdirectory_depth=subdirectory_depth,
                          allowed_characters=frequent_characters_in_german,
-                         tags_to_ignore=_tags_to_ignore,
-                         id_filter_regex=corpus_definition.id_filter_regex,
+                         tags_to_ignore=tags_to_ignore,
+                         id_filter_regex=id_filter_regex,
                          mel_frequency_count=mel_frequency_count)
 
     def _extract_label_from_par(self, par_file: Path) -> str:
@@ -188,7 +143,131 @@ class GermanCorpusProvider(CorpusProvider):
         # replace('.', ' ') because of ALC: 5204018034_h_00 contains "in l.a."
         # replace('-', ' ') because of some examples in e. g. ZIPTEL, PD2, SC10 like the following:
         # SC10: awed5070: "darf ich eine ic-fahrt zwischendurch unterbrechen"
-        decoded = self.corpus_definition.umlaut_decoder(
+        decoded = self.umlaut_decoder(
             text.lower().replace('é', 'e').replace('xe4', 'ä').replace('.', ' ').replace('-', ' '))
 
         return decoded
+
+
+# from the VM1 readme:
+# K = German, same room, no push button
+# L = German, separated room, no push button
+# M = Geramn, separated room, push button
+# N = German, same room, push button
+# G = German, separated room, push button
+# Q = same as M but 'Denglisch'
+# (Germans speaking English)
+# R = same as N but American English
+# (recording site 'C') or
+# 'Denglish' (recording site 'K')
+# Z = German, test recording in the
+# szenario 'travel planning'
+# by TP 13 Hamburg
+# J = same as G but extended scenario of
+# 1995, 1996
+# S = same as M but mixed German-English
+# W = same as M but with a Wizard
+# Y = Japanese, same room, push button
+vm1_id_German_filter_regex = re.compile("[klmngzjw][\s\S]*")
+
+# from the VM2 readme:
+# g(erman), e(nglish), j(apanese), m(ultilingual), n(oise)
+vm2_id_German_filter_regex = re.compile("g[\s\S]*|m[\s\S]*_GER")
+
+
+def clarin_corpus_providers_sorted_by_size(base_directory: Path) -> List[GermanClarinCorpusProvider]:
+    return [
+        GermanClarinCorpusProvider("all.SC1.3.cmdi.15010.1490631864", base_directory,
+                                   umlaut_decoder=UmlautDecoder.quote_after_umlaut),
+        GermanClarinCorpusProvider("all.PD2.4.cmdi.16693.1490681127", base_directory),
+        GermanClarinCorpusProvider("all.SC2.3.cmdi.13887.1490631070", base_directory),
+        GermanClarinCorpusProvider("all.ZIPTEL.3.cmdi.63058.1490624016", base_directory),
+        GermanClarinCorpusProvider("all.SC10.4.cmdi.13781.1490631055", base_directory,
+                                   umlaut_decoder=UmlautDecoder.try_quote_before_umlaut_then_after),
+        GermanClarinCorpusProvider("all.HEMPEL.4.cmdi.11610.1490680796", base_directory),
+        GermanClarinCorpusProvider("all.WaSeP.1.cmdi.21704.1490682398", base_directory),
+        GermanClarinCorpusProvider("all.aGender.1.cmdi.17072.1490632949", base_directory),
+        GermanClarinCorpusProvider("all.VMEmo.1.cmdi.7826.1490627109", base_directory),
+        GermanClarinCorpusProvider("all.BROTHERS.2.cmdi.23213.1490683025", base_directory),
+        GermanClarinCorpusProvider("all.PD1.3.cmdi.16312.1490681066", base_directory),
+        GermanClarinCorpusProvider("all.VM1.3.cmdi.1508.1490625070", base_directory,
+                                   id_filter_regex=vm1_id_German_filter_regex),
+        GermanClarinCorpusProvider("all.RVG-J.1.cmdi.18181.1490681704", base_directory),
+        GermanClarinCorpusProvider("all.HOESI.2.cmdi.15856.1490680893", base_directory),
+        GermanClarinCorpusProvider("all.RVG1_CLARIN.2.cmdi.19707.1490681833", base_directory),
+        GermanClarinCorpusProvider("all.ALC.4.cmdi.16602.1490632862", base_directory),
+        GermanClarinCorpusProvider("all.VM2.3.cmdi.4260.1490625316", base_directory,
+                                   id_filter_regex=vm2_id_German_filter_regex)
+    ]
+
+
+class GermanVoxforgeCorpusProvider(GermanClarinCorpusProvider):
+    def __init__(self, base_directory: Path):
+        super().__init__(
+            corpus_name="german-speechdata-package-v2",
+            base_directory=base_directory,
+            base_source_url_or_directory="http://www.repository.voxforge1.org/downloads/de/",
+            tar_gz_extension=".tar.gz",
+            subdirectory_depth=1,
+            umlaut_decoder=UmlautDecoder.none,
+            # exclude files starting with dot:
+            id_filter_regex=re.compile('[^.][\s\S]*'))
+
+    def _extract_labels_by_id(self, files: Iterable[Path]):
+        xml_ending = ".xml"
+
+        microphone_endings = [
+            "_Yamaha",
+            "_Kinect-Beam",
+            "_Kinect-RAW",
+            "_Realtek",
+            "_Samson",
+            "_Microsoft-Kinect-Raw"
+        ]
+
+        xml_files = [file for file in files if file.name.endswith(xml_ending) if
+                     self.id_filter_regex.match(name_without_extension(file))]
+
+        return dict(
+            (name_without_extension(file) + microphone_ending, self._extract_label_from_xml(file))
+            for file in xml_files
+            for microphone_ending in microphone_endings
+            if (Path(file.parent) / (name_without_extension(file) + microphone_ending + ".wav")).exists())
+
+    def _decode_german(self, text: str) -> str:
+        # replace("co2", "co zwei") for e. g. 2014-03-19-16-39-20_Kinect-Beam
+        # replace('ț', 't') for e. g. 2015-01-27-11-32-50_Kinect-Beam:
+        # "durchlaufende wagen bis constanța wie sie vor dem krieg existierten wurden allerdings nicht mehr eingeführt"
+        # replace('š', 's') for e. g. 2015-01-27-13-33-01_Kinect-Beam
+        # replace('č', 'c') for e. g. 2015-01-28-11-49-53_Kinect-Beam
+        # replace('ę', 'e') for e. g. 2015-01-28-12-35-21_Kinect-Beam:
+        # "es ist beschämend dass dieser umstand herrn pęks aufmerksamkeit entgangen ist"
+        # replace('ō', 'o') for e. g. 2015-02-03-13-43-46_Kinect-Beam:
+        # "alle varianten von sankyo werden im aikidō üblicherweise in eine immobilisation überführt"
+        # replace('á', 'a') for e. g. 2015-02-03-13-45-08_Kinect-Beam:
+        # "in dieser hinsicht glaube ich dass sich herr szájer herr swoboda ..."
+        # replace('í', 'i') for e. g. 2015-02-09-12-35-23_Kinect-Beam:
+        # "das andauernde leben in der einsamkeit zermürbt gísli ..."
+        # replace('ł', 'l') for e. g. 2015-02-10-13-41-20_Kinect-Beam:
+        # "gegenüber dieser bedrohung gelang dem polnischen führer piłsudski ..."
+        # replace('à', 'a') for e. g. 2015-02-10-14-29-03_Kinect-Beam:
+        # "... à hundert franken"
+        # replace('ė', 'e') in 2015-01-27-13-33-01_Kinect-Beam:
+        # "...vom preußischen grenzort laugszargen über tauragė ..."
+        # replace('ú','u') in 2015-02-04-13-03-47_Kinect-Beam:
+        # "... die von renault in setúbal hergestellte produktlinie ..."
+        return super()._decode_german(text).replace("co2", "co zwei").replace('ț', 't'). \
+            replace('š', 's').replace('č', 'c').replace('ę', 'e').replace('ō', 'o').replace('á', 'a'). \
+            replace('í', 'i').replace('ł', 'l').replace('à', 'a').replace('ė', 'e').replace('ú', 'u')
+
+    def _extract_label_from_xml(self, xml_file: Path) -> str:
+        try:
+            return self._decode_german(
+                ElementTree.parse(str(xml_file)).getroot().find('.//cleaned_sentence').text.lower())
+        except Exception:
+            raise ParsingException("Error parsing annotation {}".format(xml_file))
+
+
+def german_corpus_providers(base_directory: Path) -> List[CorpusProvider]:
+    return [GermanVoxforgeCorpusProvider(base_directory=base_directory)] + \
+           clarin_corpus_providers_sorted_by_size(base_directory=base_directory)

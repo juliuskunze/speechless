@@ -12,7 +12,7 @@ from urllib import request
 
 from grapheme_enconding import frequent_characters_in_english
 from labeled_example import LabeledExample
-from tools import mkdir, distinct, name_without_extension, extension, count_summary, single
+from tools import mkdir, distinct, name_without_extension, extension, count_summary
 
 
 class ParsingException(Exception):
@@ -27,7 +27,7 @@ class CorpusProvider:
                  tar_gz_extension: str = ".tar.gz",
                  mel_frequency_count: int = 128,
                  root_compressed_directory_name_to_skip: Optional[str] = "LibriSpeech/",
-                 subdirectory_depth: int = 2,
+                 subdirectory_depth: int = 3,
                  allowed_characters: List[chr] = frequent_characters_in_english,
                  tags_to_ignore: Iterable[str] = list(),
                  id_filter_regex=re.compile('[\s\S]*')):
@@ -92,7 +92,7 @@ class CorpusProvider:
             tar_file = self._download_if_not_yet_done(file_url_or_path, self.base_directory / file_name)
             self._unpack_tar_if_not_yet_done(tar_file, target_directory=target_directory)
 
-        return single([sub_directory for sub_directory in target_directory.iterdir() if sub_directory.is_dir()])
+        return target_directory
 
     def _unpack_tar_if_not_yet_done(self, tar_file: Path, target_directory: Path):
         if not target_directory.is_dir():
