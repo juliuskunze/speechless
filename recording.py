@@ -90,4 +90,4 @@ class Recorder:
         "Records from the microphone and outputs the resulting data to 'path'. Returns a labeled example for analysis."
         librosa.output.write_wav(str(path), self.record(), self.sample_rate)
 
-        return LabeledExample.from_file(path)
+        return LabeledExample(path)

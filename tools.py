@@ -1,3 +1,4 @@
+from itertools import groupby
 from pathlib import Path
 
 from collections import OrderedDict, Counter
@@ -51,5 +52,9 @@ def distinct(sequence: List) -> List:
     return list(OrderedDict.fromkeys(sequence))
 
 
-def count_summary(list: List) -> str:
-    return ", ".join(["{}: {}".format(tag, count) for tag, count in Counter(list).most_common()])
+def count_summary(sequence: List) -> str:
+    return ", ".join(["{}: {}".format(tag, count) for tag, count in Counter(sequence).most_common()])
+
+
+def group(iterable, key, value=lambda x: x):
+    return dict((k, list(map(value, values))) for k, values in groupby(sorted(iterable, key=key), key))

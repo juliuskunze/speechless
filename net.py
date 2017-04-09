@@ -2,6 +2,7 @@ from functools import reduce
 from itertools import cycle
 from pathlib import Path
 
+import numpy
 from keras import backend
 from keras.callbacks import Callback, TensorBoard
 from keras.engine import Input, Layer, Model
@@ -13,7 +14,7 @@ from numpy import ndarray, zeros, array, mean, reshape
 from os import makedirs
 from typing import List, Callable, Iterable
 
-from grapheme_enconding import CtcGraphemeEncoding, frequent_characters_in_english
+from grapheme_enconding import CtcGraphemeEncoding, frequent_characters_in_english, AsgGraphemeEncoding
 from spectrogram_batch import LabeledSpectrogram
 
 
@@ -36,13 +37,28 @@ class Wav2Letter:
                  dropout: float = None,
                  load_model_from_directory: Path = None,
                  load_epoch: int = None,
-                 frozen_layer_count: int = 0):
+                 frozen_layer_count: int = 0,
+                 use_asg: bool = False,
+                 asg_transition_probabilities: ndarray = None,
+                 asg_initial_probabilities: ndarray = None):
+
+        self.grapheme_encoding = AsgGraphemeEncoding(allowed_characters=allowed_characters) \
+            if use_asg else CtcGraphemeEncoding(allowed_characters=allowed_characters)
+
+        grapheme_set_size = self.grapheme_encoding.grapheme_set_size
+
+        self.asg_transition_probabilities = self._default_asg_transition_probabilities(grapheme_set_size) \
+            if asg_transition_probabilities is None else asg_transition_probabilities
+
+        self.asg_initial_probabilities = self._default_asg_initial_probabilities(grapheme_set_size) \
+            if asg_initial_probabilities is None else asg_initial_probabilities
+
+        self.use_asg = use_asg
         self.frozen_layer_count = frozen_layer_count
         self.output_activation = output_activation
         self.activation = activation
         self.use_raw_wave_input = use_raw_wave_input
         self.input_size_per_time_step = input_size_per_time_step
-        self.grapheme_encoding = CtcGraphemeEncoding(allowed_characters=allowed_characters)
         self.optimizer = optimizer
         self.load_epoch = load_epoch
         self.dropout = dropout
@@ -50,6 +66,26 @@ class Wav2Letter:
         self.prediction_phase_flag = 0.
         if load_model_from_directory is not None:
             self.predictive_net.load_weights(str(load_model_from_directory / self.model_file_name(load_epoch)))
+
+    @staticmethod
+    def _default_asg_transition_probabilities(grapheme_set_size: int) -> ndarray:
+        asg_transition_probabilities = numpy.random.randint(1, 15,
+                                                            (grapheme_set_size + 1, grapheme_set_size + 1))
+        zero_array = numpy.zeros(grapheme_set_size + 1)
+        asg_transition_probabilities[0] = zero_array
+        asg_transition_probabilities[:, 0] = zero_array
+        # sum up each column, add dummy 1 in front for easier division later
+        transition_norms = numpy.concatenate(([1], asg_transition_probabilities[:, 1:].sum(axis=0)))
+        asg_transition_probabilities = asg_transition_probabilities / transition_norms
+        return asg_transition_probabilities
+
+    @staticmethod
+    def _default_asg_initial_probabilities(grapheme_set_size: int) -> ndarray:
+        asg_initial_probabilities = numpy.random.randint(1, 15, grapheme_set_size + 1)
+        asg_initial_probabilities[0] = 0
+        asg_initial_probabilities = asg_initial_probabilities / asg_initial_probabilities.sum()
+        # N.B. beware that initial_logprobs[0] is now -inf, NOT 0!
+        return asg_initial_probabilities
 
     def create_predictive_net(self) -> Sequential:
         """Returns the part of the net that predicts grapheme probabilities given a spectrogram.
@@ -116,23 +152,39 @@ class Wav2Letter:
     def loss_net(self) -> Model:
         """Returns the network that yields a loss given both input spectrograms and labels. Used for training."""
         input_batch = Input(name=Wav2Letter.InputNames.input_batch, batch_shape=self.predictive_net.input_shape)
-        label_batch = Input(name=Wav2Letter.InputNames.label_batch, shape=(None,))
+        label_batch = Input(name=Wav2Letter.InputNames.label_batch, shape=(None,), dtype='int32')
         prediction_lengths = Input(name=Wav2Letter.InputNames.prediction_lengths, shape=(1,), dtype='int64')
         label_lengths = Input(name=Wav2Letter.InputNames.label_lengths, shape=(1,), dtype='int64')
 
+        asg_transition_probabilities_variable = backend.variable(value=self.asg_transition_probabilities,
+                                                                 name="asg_transition_probabilities")
+        asg_initial_probabilities_variable = backend.variable(value=self.asg_initial_probabilities,
+                                                              name="asg_initial_probabilities")
         # Since Keras doesn't currently support loss functions with extra parameters,
         # we define a custom lambda layer yielding one single real-valued CTC loss given the grapheme probabilities:
-        loss_layer = Lambda(Wav2Letter._ctc_lambda, name='ctc_loss', output_shape=(1,))
+        loss_layer = Lambda(Wav2Letter._asg_lambda if self.use_asg else Wav2Letter._ctc_lambda,
+                            name='asg_loss' if self.use_asg else 'ctc_loss',
+                            output_shape=(1,),
+                            arguments={"transition_probabilities": asg_transition_probabilities_variable,
+                                       "initial_probabilities": asg_initial_probabilities_variable} if self.use_asg else None)
+
+        # ([asg_transition_probabilities_variable, asg_initial_probabilities_variable] if self.use_asg else [])
 
         # This loss layer is placed atop the predictive network and provided with additional arguments,
         # namely the label batch and prediction/label sequence lengths:
-        loss = loss_layer([self.predictive_net(input_batch), label_batch, prediction_lengths, label_lengths])
+        loss = loss_layer(
+            [self.predictive_net(input_batch), label_batch, prediction_lengths, label_lengths])
 
         loss_net = Model(input=[input_batch, label_batch, prediction_lengths, label_lengths], output=[loss])
         # Since loss is already calculated in the last layer of the net, we just pass through the results here.
         # The loss dummy labels have to be given to satify the Keras API.
         loss_net.compile(loss=lambda dummy_labels, ctc_loss: ctc_loss, optimizer=self.optimizer)
         return loss_net
+
+    @staticmethod
+    def _asg_lambda(args, transition_probabilities=None, initial_probabilities=None):
+        # keras implementation can be plugged in here once ready:
+        raise NotImplementedError("ASG is not yet implemented.")
 
     # No type hints here because the annotations cause an error in the Keras library:
     @staticmethod
@@ -211,8 +263,9 @@ class Wav2Letter:
 
                     self.predictive_net.save_weights(str(net_directory / self.model_file_name(epoch)))
 
-        tensor_board = TensorBoard(log_dir=str(tensor_board_log_directory), write_images=True)
-        return [tensor_board, CustomCallback()]
+        tensorboard_if_running_tensorboard = [TensorBoard(log_dir=str(tensor_board_log_directory),
+                                                          write_images=True)] if backend.backend() == 'tensorflow' else []
+        return tensorboard_if_running_tensorboard + [CustomCallback()]
 
     def _input_batch_and_prediction_lengths(self, spectrograms: List[ndarray]):
         batch_size = len(spectrograms)

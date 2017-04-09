@@ -2,11 +2,12 @@ import json
 import re
 from pathlib import Path
 
-from typing import Iterable, Dict, Callable, Optional, List
+from typing import Iterable, Dict, Callable, Optional, List, Tuple
 from xml.etree import ElementTree
 
-from corpus_provider import CorpusProvider, ParsingException
+from corpus_provider import CorpusProvider, ParsingException, TrainingTestSplit
 from grapheme_enconding import frequent_characters_in_german
+from labeled_example import LabeledExample
 from tools import read_text, single, single_or_none, name_without_extension
 
 _tags_to_ignore = [
@@ -54,7 +55,9 @@ class GermanClarinCorpusProvider(CorpusProvider):
                  root_compressed_directory_name_to_skip: Optional[str] = None,
                  subdirectory_depth: int = 2,
                  tags_to_ignore: Iterable[str] = _tags_to_ignore,
-                 id_filter_regex=re.compile('[\s\S]*')):
+                 id_filter_regex=re.compile('[\s\S]*'),
+                 training_test_split: Callable[[List[LabeledExample]], Tuple[
+                     List[LabeledExample], List[LabeledExample]]] = TrainingTestSplit.randomly_by_directory(.9)):
         self.umlaut_decoder = umlaut_decoder
 
         super().__init__(base_directory=base_directory,
@@ -66,7 +69,8 @@ class GermanClarinCorpusProvider(CorpusProvider):
                          allowed_characters=frequent_characters_in_german,
                          tags_to_ignore=tags_to_ignore,
                          id_filter_regex=id_filter_regex,
-                         mel_frequency_count=mel_frequency_count)
+                         mel_frequency_count=mel_frequency_count,
+                         training_test_split=training_test_split)
 
     def _extract_label_from_par(self, par_file: Path) -> str:
         par_text = read_text(par_file, encoding='utf8')
@@ -180,24 +184,20 @@ def clarin_corpus_providers_sorted_by_size(base_directory: Path) -> List[GermanC
         GermanClarinCorpusProvider("all.SC1.3.cmdi.15010.1490631864", base_directory,
                                    umlaut_decoder=UmlautDecoder.quote_after_umlaut),
         GermanClarinCorpusProvider("all.PD2.4.cmdi.16693.1490681127", base_directory),
-        GermanClarinCorpusProvider("all.SC2.3.cmdi.13887.1490631070", base_directory),
         GermanClarinCorpusProvider("all.ZIPTEL.3.cmdi.63058.1490624016", base_directory),
         GermanClarinCorpusProvider("all.SC10.4.cmdi.13781.1490631055", base_directory,
                                    umlaut_decoder=UmlautDecoder.try_quote_before_umlaut_then_after),
         GermanClarinCorpusProvider("all.HEMPEL.4.cmdi.11610.1490680796", base_directory),
-        GermanClarinCorpusProvider("all.WaSeP.1.cmdi.21704.1490682398", base_directory),
-        GermanClarinCorpusProvider("all.aGender.1.cmdi.17072.1490632949", base_directory),
-        GermanClarinCorpusProvider("all.VMEmo.1.cmdi.7826.1490627109", base_directory),
-        GermanClarinCorpusProvider("all.BROTHERS.2.cmdi.23213.1490683025", base_directory),
         GermanClarinCorpusProvider("all.PD1.3.cmdi.16312.1490681066", base_directory),
         GermanClarinCorpusProvider("all.VM1.3.cmdi.1508.1490625070", base_directory,
-                                   id_filter_regex=vm1_id_German_filter_regex),
+                                   id_filter_regex=vm1_id_German_filter_regex,
+                                   training_test_split=TrainingTestSplit.training_only),
         GermanClarinCorpusProvider("all.RVG-J.1.cmdi.18181.1490681704", base_directory),
-        GermanClarinCorpusProvider("all.HOESI.2.cmdi.15856.1490680893", base_directory),
-        GermanClarinCorpusProvider("all.RVG1_CLARIN.2.cmdi.19707.1490681833", base_directory),
-        GermanClarinCorpusProvider("all.ALC.4.cmdi.16602.1490632862", base_directory),
+        GermanClarinCorpusProvider("all.ALC.4.cmdi.16602.1490632862", base_directory,
+                                   training_test_split=TrainingTestSplit.training_only),
         GermanClarinCorpusProvider("all.VM2.3.cmdi.4260.1490625316", base_directory,
-                                   id_filter_regex=vm2_id_German_filter_regex)
+                                   id_filter_regex=vm2_id_German_filter_regex,
+                                   training_test_split=TrainingTestSplit.training_only)
     ]
 
 
@@ -211,7 +211,8 @@ class GermanVoxforgeCorpusProvider(GermanClarinCorpusProvider):
             subdirectory_depth=1,
             umlaut_decoder=UmlautDecoder.none,
             # exclude files starting with dot:
-            id_filter_regex=re.compile('[^.][\s\S]*'))
+            id_filter_regex=re.compile('[^.][\s\S]*', ),
+            training_test_split=TrainingTestSplit.by_directory())
 
     def _extract_labels_by_id(self, files: Iterable[Path]):
         xml_ending = ".xml"
@@ -269,5 +270,5 @@ class GermanVoxforgeCorpusProvider(GermanClarinCorpusProvider):
 
 
 def german_corpus_providers(base_directory: Path) -> List[CorpusProvider]:
-    return [GermanVoxforgeCorpusProvider(base_directory=base_directory)] + \
-           clarin_corpus_providers_sorted_by_size(base_directory=base_directory)
+    return clarin_corpus_providers_sorted_by_size(base_directory=base_directory) + \
+           [GermanVoxforgeCorpusProvider(base_directory=base_directory)]

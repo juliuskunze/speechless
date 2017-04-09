@@ -3,20 +3,53 @@ import re
 import subprocess
 import tarfile
 from functools import reduce
-from itertools import repeat
 from pathlib import Path
 from tarfile import *
 
-from typing import List, Iterable, Optional, Dict
+from typing import List, Iterable, Optional, Dict, Callable, Tuple
 from urllib import request
 
 from grapheme_enconding import frequent_characters_in_english
 from labeled_example import LabeledExample
-from tools import mkdir, distinct, name_without_extension, extension, count_summary
+from tools import mkdir, distinct, name_without_extension, extension, count_summary, group
 
 
 class ParsingException(Exception):
     pass
+
+
+class TrainingTestSplit:
+    training_only = lambda examples: (examples, [])
+    test_only = lambda examples: ([], examples)
+
+    @staticmethod
+    def randomly_by_directory(train_set_share: float = .9) -> Callable[
+        [List[LabeledExample]], Tuple[List[LabeledExample], List[LabeledExample]]]:
+        def split(examples: List[LabeledExample]) -> Tuple[List[LabeledExample], List[LabeledExample]]:
+            examples_by_directory = group(examples, key=lambda e: e.audio_directory)
+            directories = examples_by_directory.keys()
+
+            # split must be the same every time:
+            random.seed(42)
+            training_directories = set(random.sample(directories, round(train_set_share * len(directories))))
+
+            training_examples = [example for example in examples if example.audio_directory in training_directories]
+            test_examples = [example for example in examples if example.audio_directory not in training_directories]
+
+            return training_examples, test_examples
+
+        return split
+
+    @staticmethod
+    def by_directory(test_directory_name: str = "test") -> Callable[
+        [List[LabeledExample]], Tuple[List[LabeledExample], List[LabeledExample]]]:
+        def split(examples: List[LabeledExample]) -> Tuple[List[LabeledExample], List[LabeledExample]]:
+            training_examples = [example for example in examples if example.audio_directory.name == test_directory_name]
+            test_examples = [example for example in examples if example.audio_directory.name != test_directory_name]
+
+            return training_examples, test_examples
+
+        return split
 
 
 class CorpusProvider:
@@ -30,7 +63,9 @@ class CorpusProvider:
                  subdirectory_depth: int = 3,
                  allowed_characters: List[chr] = frequent_characters_in_english,
                  tags_to_ignore: Iterable[str] = list(),
-                 id_filter_regex=re.compile('[\s\S]*')):
+                 id_filter_regex=re.compile('[\s\S]*'),
+                 training_test_split: Callable[[List[LabeledExample]], Tuple[
+                     List[LabeledExample], List[LabeledExample]]] = TrainingTestSplit.randomly_by_directory(.9)):
         self.id_filter_regex = id_filter_regex
         self.tags_to_ignore = tags_to_ignore
         self.allowed_characters = allowed_characters
@@ -69,10 +104,10 @@ class CorpusProvider:
         self.label_ids_without_audio = list(found_label_ids - found_audio_ids)
 
         def example(audio_file: Path) -> LabeledExample:
-            return LabeledExample.from_file(audio_file, label_from_id=lambda id: self._remove_tags_to_ignore(
+            return LabeledExample(audio_file, label_from_id=lambda id: self._remove_tags_to_ignore(
                 labels_with_tags_by_id[id]),
-                                            mel_frequency_count=self.mel_frequency_count,
-                                            original_label_with_tags_from_id=lambda id: labels_with_tags_by_id[id])
+                                  mel_frequency_count=self.mel_frequency_count,
+                                  original_label_with_tags_from_id=lambda id: labels_with_tags_by_id[id])
 
         self.examples = sorted(
             [example(file) for file in audio_files if name_without_extension(file) in labels_with_tags_by_id.keys()],
@@ -137,47 +172,80 @@ class CorpusProvider:
     def is_allowed(self, label: str) -> bool:
         return all(c in self.allowed_characters for c in label)
 
+    def csv_row(self):
+        empty_examples = self.empty_examples()
+        return [" ".join(self.corpus_names),
+                self.file_type_summary(),
+                len(self.unfiltered_audio_files), self.filtered_out_count, self.id_filter_regex,
+                len(self.audio_ids_without_label), str(self.audio_ids_without_label[:10]),
+                len(self.label_ids_without_audio), self.label_ids_without_audio[:10],
+                self.tag_summary(),
+                len(self.examples),
+                len(self.invalid_examples_texts()), self.invalid_examples_summary(),
+                len(empty_examples), [e.id for e in empty_examples[:10]],
+                self.duplicate_label_count()]
+
     def summary(self) -> str:
-        invalid_examples = [
-            " Invalid characters {} in {}".format(
-                distinct([c for c in x.label if c not in self.allowed_characters]), str(x))
-            for x in self.examples if not self.is_allowed(x.label)]
+        tags_summary = self.tag_summary()
 
-        tags = [counted_tag
-                for example in self.examples
-                for tag in self.tags_to_ignore
-                for counted_tag in repeat(tag, example.tag_count(tag))]
-
-        duplicate_label_count = len(self.examples) - len(set(e.label for e in self.examples))
-
-        empty_examples = [example for example in self.examples if example.label == ""]
-
-        file_extensions = [extension(file)
-                           for directory in self.corpus_directories
-                           for file in directory.glob('**/*.*') if file.is_file()]
-
-        tags_summary = count_summary(tags)
-        some_original_sample_rates = [example.original_sample_rate for example in
-                                      random.sample(self.examples, min(50, len(self.examples)))]
-        return "{}:\n File types: {}\n{}{}{}{}{} {} extracted examples, of them {} invalid, {} empty, {} duplicate.\n Original sample rates of some random examples: {}\n".format(
-            " ".join(self.corpus_names),
-            count_summary(file_extensions),
-            " Out of {} audio files, {} were excluded by regex {}\n".format(
+        description = "File types: {}\n{}{}{}{}{}{} extracted examples, of them {} invalid, {} empty, {} duplicate.\n".format(
+            self.file_type_summary(),
+            "Out of {} audio files, {} were excluded by regex {}\n".format(
                 len(self.unfiltered_audio_files), self.filtered_out_count,
                 self.id_filter_regex) if self.filtered_out_count > 0 else "",
 
-            " {} audio files without match label; will be excluded, e. g. {}.\n".format(
+            "{} audio files without matching label; will be excluded, e. g. {}.\n".format(
                 len(self.audio_ids_without_label), self.audio_ids_without_label[:10]) if len(
                 self.audio_ids_without_label) > 0 else "",
 
-            " {} labels without matching audio file; will be excluded, e. g. {}.\n".format(
+            "{} labels without matching audio file; will be excluded, e. g. {}.\n".format(
                 len(self.label_ids_without_audio), self.label_ids_without_audio[:10]) if len(
                 self.label_ids_without_audio) > 0 else "",
 
-            "".join([e + '\n' for e in invalid_examples]),
-            " Removed label tags: {}\n".format(tags_summary) if tags_summary != "" else "",
+            "Removed label tags: {}\n".format(tags_summary) if tags_summary != "" else "",
             len(self.examples),
-            len(invalid_examples),
-            len(empty_examples),
-            duplicate_label_count,
-            count_summary(some_original_sample_rates))
+            len(self.invalid_examples_texts()),
+            self.invalid_examples_summary(),
+            len(self.empty_examples()),
+            self.duplicate_label_count())
+
+        return " ".join(self.corpus_names) + "\n" + "\n".join("\t" + line for line in description.splitlines())
+
+    def invalid_examples_summary(self):
+        return "".join([e + '\n' for e in self.invalid_examples_texts()])
+
+    def original_sample_rate_summary(self):
+        return count_summary(self.some_original_sample_rates())
+
+    def tag_summary(self):
+        return count_summary(self.tags_from_all_examples())
+
+    def file_type_summary(self):
+        return count_summary(self.file_extensions())
+
+    def invalid_examples_texts(self):
+        return [
+            "Invalid characters {} in {}".format(
+                distinct([c for c in x.label if c not in self.allowed_characters]), str(x))
+            for x in self.examples if not self.is_allowed(x.label)]
+
+    def some_original_sample_rates(self):
+        return [example.original_sample_rate for example in
+                random.sample(self.examples, min(50, len(self.examples)))]
+
+    def file_extensions(self):
+        return [extension(file)
+                for directory in self.corpus_directories
+                for file in directory.glob('**/*.*') if file.is_file()]
+
+    def empty_examples(self):
+        return [example for example in self.examples if example.label == ""]
+
+    def duplicate_label_count(self):
+        return len(self.examples) - len(set(e.label for e in self.examples))
+
+    def tags_from_all_examples(self):
+        return [counted_tag
+                for example in self.examples
+                for tag in self.tags_to_ignore
+                for counted_tag in [tag] * example.tag_count(tag)]

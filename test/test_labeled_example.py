@@ -1,16 +1,13 @@
 from pathlib import Path
-from unittest import TestCase
 
 import librosa
 import numpy as np
+from unittest import TestCase
 
 from corpus_provider import CorpusProvider
 from labeled_example import SpectrogramType, SpectrogramFrequencyScale
 
-base_directory = Path(Path.home(), "speechless-data")
-base_spectrogram_directory = Path(base_directory, "spectrograms")
-base_spectrogram_directory.mkdir(exist_ok=True)
-corpus = CorpusProvider(base_directory / "corpus", corpus_names=["dev-clean"])
+corpus = CorpusProvider(Path.home() / "speechless-data" / "corpus" / "English", corpus_names=["dev-clean"])
 
 
 class LabeledExampleTest(TestCase):

@@ -1,9 +1,8 @@
 from pathlib import Path
 from time import strftime
 
-from german_corpus_provider import clarin_corpus_providers_sorted_by_size, \
-    GermanVoxforgeCorpusProvider, german_corpus_providers
-from grapheme_enconding import frequent_characters_in_german
+from corpus_provider import CorpusProvider
+from german_corpus_provider import german_corpus_providers
 from labeled_example import LabeledExample
 from recording import Recorder
 from spectrogram_batch import LabeledSpectrogramBatchGenerator
@@ -25,13 +24,13 @@ def timestamp() -> str:
     return strftime("%Y%m%d-%H%M%S")
 
 
-def train_wav2letter(mel_frequency_count: int = 128) -> None:
+def train_wav2letter(mel_frequency_count: int = 128, epoch_size: int = 100) -> None:
     from net import Wav2Letter
 
     labeled_spectrogram_batch_generator = batch_generator(mel_frequency_count=mel_frequency_count)
 
     wav2letter = Wav2Letter(input_size_per_time_step=mel_frequency_count,
-                            allowed_characters=frequent_characters_in_german)
+                            use_asg=True)
 
     run_name = timestamp() + "-german-adam-small-learning-rate-complete-95"
 
@@ -39,17 +38,20 @@ def train_wav2letter(mel_frequency_count: int = 128) -> None:
                      tensor_board_log_directory=tensorboard_log_base_directory / run_name,
                      net_directory=nets_base_directory / run_name,
                      test_labeled_spectrogram_batch=labeled_spectrogram_batch_generator.preview_batch(),
-                     samples_per_epoch=labeled_spectrogram_batch_generator.batch_size * 100)
+                     samples_per_epoch=labeled_spectrogram_batch_generator.batch_size * epoch_size)
 
 
 def batch_generator(is_training: bool = True, mel_frequency_count: int = 128) -> LabeledSpectrogramBatchGenerator:
     # TODO use specified mel frequency count
-    corpus = clarin_corpus_providers_sorted_by_size(german_corpus_directory)[1]
+    corpus = CorpusProvider(english_corpus_directory, corpus_names=["dev-clean"])
     # TODO fix this, sample randomly:
     split_index = int(len(corpus.examples) * .95)
-    examples = corpus.examples[:split_index] if is_training else corpus.examples[split_index:]
+
+    tiny_batch_size = 2
+    examples = corpus.examples[:split_index][:tiny_batch_size] if is_training else corpus.examples[split_index:]
     return LabeledSpectrogramBatchGenerator(examples=examples,
-                                            spectrogram_cache_directory=german_spectrogram_cache_directory)
+                                            spectrogram_cache_directory=german_spectrogram_cache_directory,
+                                            batch_size=tiny_batch_size)
 
 
 def record() -> LabeledExample:
@@ -77,7 +79,7 @@ def predict_recording() -> None:
         print_prediction(record(), description=description)
 
     def print_prediction_from_file(file_name: str, description: str = None) -> None:
-        print_prediction(LabeledExample.from_file(recording_directory / file_name), description=description)
+        print_prediction(LabeledExample(recording_directory / file_name), description=description)
 
     def print_example_predictions() -> None:
         print("Predictions: ")
@@ -112,10 +114,14 @@ def load_best_wav2letter_model(mel_frequency_count: int = 128):
 
 
 def summarize_german_corpus() -> None:
-    voxforge = GermanVoxforgeCorpusProvider(german_corpus_directory)
-    print(voxforge.summary())
+    import csv
+    with (base_directory / "summary.csv").open('w', encoding='utf8') as csv_summary_file:
+        writer = csv.writer(csv_summary_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
 
-    for corpus_provider in german_corpus_providers(german_corpus_directory):
-        print(corpus_provider.summary())
+        for corpus_provider in german_corpus_providers(german_corpus_directory):
+            print(corpus_provider.summary())
+            writer.writerow(corpus_provider.csv_row())
 
-summarize_german_corpus()
+
+train_wav2letter(epoch_size=10)
+# summarize_german_corpus()

@@ -28,66 +28,45 @@ def z_normalize(array: ndarray) -> ndarray:
 
 
 class LabeledExample:
-    def __init__(self, id: str,
-                 get_raw_audio: Callable[[], ndarray],
-                 label: Optional[str],
+    def __init__(self,
+                 audio_file: Path,
+                 id: Optional[str] = None,
+                 sample_rate_to_convert_to: int = 16000,
+                 label_from_id: Callable[[str], Optional[str]] = lambda id: None,
                  fourier_window_length: int = 512,
                  hop_length: int = 128,
                  mel_frequency_count: int = 128,
-                 sample_rate: int = 16000,
-                 original_label_with_tags: Optional[str] = None,
-                 get_original_sample_rate: Callable[[], Optional[int]] = lambda: None):
-        # The default values for hop_length and fourier_window_length are powers of 2 near the values specified in the wave2letter paper.
-        self.sample_rate = sample_rate
-        self.id = id
-        self._get_raw_audio = get_raw_audio
-        self.label = label
-        self.fourier_window_length = fourier_window_length
-        self.hop_length = hop_length
-        self.mel_frequency_count = mel_frequency_count
-        self.original_label_with_tags = original_label_with_tags
-        self._get_original_sample_rate = get_original_sample_rate
-
-    @staticmethod
-    def from_file(audio_file: Path, id: Optional[str] = None,
-                  sample_rate_to_convert_to: int = 16000,
-                  label_from_id: Callable[[str], Optional[str]] = lambda id: None,
-                  fourier_window_length: int = 512,
-                  hop_length: int = 128,
-                  mel_frequency_count: int = 128,
-                  original_label_with_tags_from_id: Callable[[str], Optional[str]] = lambda id: None
-                  ) -> 'LabeledExample':
+                 original_label_with_tags_from_id: Callable[[str], Optional[str]] = lambda id: None):
         if id is None:
             id = name_without_extension(audio_file)
 
-        def get_original_sample_rate():
-            with audioread.audio_open(os.path.realpath(str(audio_file))) as input_file:
-                return input_file.samplerate
+        # The default values for hop_length and fourier_window_length are powers of 2 near the values specified in the wave2letter paper.
+        self.audio_file = audio_file
+        self.sample_rate = sample_rate_to_convert_to
+        self.id = id
+        self.label = label_from_id(id)
+        self.fourier_window_length = fourier_window_length
+        self.hop_length = hop_length
+        self.mel_frequency_count = mel_frequency_count
+        self.original_label_with_tags = original_label_with_tags_from_id(id)
 
-        def get_raw_audio():
-            y, sample_rate = librosa.load(str(audio_file), sr=sample_rate_to_convert_to)
-
-            return y
-
-        return LabeledExample(id=id, get_raw_audio=get_raw_audio,
-                              sample_rate=sample_rate_to_convert_to,
-                              label=label_from_id(id),
-                              fourier_window_length=fourier_window_length,
-                              hop_length=hop_length,
-                              mel_frequency_count=mel_frequency_count,
-                              get_original_sample_rate=get_original_sample_rate,
-                              original_label_with_tags=original_label_with_tags_from_id(id))
+    @property
+    def audio_directory(self):
+        return Path(self.audio_file.parent)
 
     def tag_count(self, tag: str) -> int:
         return self.original_label_with_tags.count(tag)
 
     @lazy
-    def original_sample_rate(self) -> int:
-        return self._get_original_sample_rate()
+    def raw_audio(self) -> ndarray:
+        y, sample_rate = librosa.load(str(self.audio_file), sr=self.sample_rate)
+
+        return y
 
     @lazy
-    def raw_audio(self) -> ndarray:
-        return self._get_raw_audio()
+    def original_sample_rate(self) -> int:
+        with audioread.audio_open(os.path.realpath(str(self.audio_file))) as input_file:
+            return input_file.samplerate
 
     def _power_spectrogram(self) -> ndarray:
         return self._amplitude_spectrogram() ** 2
