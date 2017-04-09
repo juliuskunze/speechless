@@ -6,6 +6,7 @@ from functools import reduce
 from pathlib import Path
 from tarfile import *
 
+from collections import Counter
 from typing import List, Iterable, Optional, Dict, Callable, Tuple
 from urllib import request
 
@@ -183,12 +184,12 @@ class CorpusProvider:
                 len(self.examples),
                 len(self.invalid_examples_texts()), self.invalid_examples_summary(),
                 len(empty_examples), [e.id for e in empty_examples[:10]],
-                self.duplicate_label_count()]
+                self.duplicate_label_count(), self.most_duplicated_labels()]
 
     def summary(self) -> str:
         tags_summary = self.tag_summary()
 
-        description = "File types: {}\n{}{}{}{}{}{} extracted examples, of them {} invalid, {} empty, {} duplicate.\n".format(
+        description = "File types: {}\n{}{}{}{}{} extracted examples, of them {} invalid, {} empty, {} duplicate.\n".format(
             self.file_type_summary(),
             "Out of {} audio files, {} were excluded by regex {}\n".format(
                 len(self.unfiltered_audio_files), self.filtered_out_count,
@@ -243,6 +244,9 @@ class CorpusProvider:
 
     def duplicate_label_count(self):
         return len(self.examples) - len(set(e.label for e in self.examples))
+
+    def most_duplicated_labels(self):
+        return Counter([example.label for example in self.examples]).most_common(10)
 
     def tags_from_all_examples(self):
         return [counted_tag

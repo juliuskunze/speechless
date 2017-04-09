@@ -17,4 +17,4 @@ will automatically download the smallest English example corpus (322MB),
 and train a net based on it. Everything (corpus, nets, logs) will be stored in `~/speechless-data`.
 You can change this directory by adapting `base_directory` in `main.py`. 
 
-`main.py` currently contains other configurations that were executed to train and use models.
+`main.py` currently contains other functions that were executed to train and use models.
