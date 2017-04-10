@@ -14,8 +14,8 @@ from numpy import ndarray, zeros, array, mean, reshape
 from os import makedirs
 from typing import List, Callable, Iterable
 
+from corpus import LabeledSpectrogram
 from grapheme_enconding import CtcGraphemeEncoding, frequent_characters_in_english, AsgGraphemeEncoding
-from spectrogram_batch import LabeledSpectrogram
 
 
 class Wav2Letter:

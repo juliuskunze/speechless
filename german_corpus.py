@@ -5,7 +5,8 @@ from pathlib import Path
 from typing import Iterable, Dict, Callable, Optional, List, Tuple
 from xml.etree import ElementTree
 
-from corpus_provider import CorpusProvider, ParsingException, TrainingTestSplit
+from corpus import ParsingException, TrainingTestSplit, CombinedCorpus
+from english_corpus import LibriSpeechCorpus
 from grapheme_enconding import frequent_characters_in_german
 from labeled_example import LabeledExample
 from tools import read_text, single, single_or_none, name_without_extension
@@ -24,7 +25,8 @@ _tags_to_ignore = [
     "<a>",  # only occures once
     "<uhm>",
     "<uh>",
-    "<hes>"
+    "<hes>",
+    "/"  # in few examples of ALC corpus
 ]
 
 
@@ -40,7 +42,7 @@ class UmlautDecoder:
         UmlautDecoder.quote_before_umlaut(text))
 
 
-class GermanClarinCorpusProvider(CorpusProvider):
+class GermanClarinCorpus(LibriSpeechCorpus):
     """
     Parses the labeled German speech data downloadable from https://clarin.phonetik.uni-muenchen.de/BASRepository/.
     """
@@ -57,7 +59,7 @@ class GermanClarinCorpusProvider(CorpusProvider):
                  tags_to_ignore: Iterable[str] = _tags_to_ignore,
                  id_filter_regex=re.compile('[\s\S]*'),
                  training_test_split: Callable[[List[LabeledExample]], Tuple[
-                     List[LabeledExample], List[LabeledExample]]] = TrainingTestSplit.randomly_by_directory(.9)):
+                     List[LabeledExample], List[LabeledExample]]] = TrainingTestSplit.randomly_by_directory()):
         self.umlaut_decoder = umlaut_decoder
 
         super().__init__(base_directory=base_directory,
@@ -75,7 +77,8 @@ class GermanClarinCorpusProvider(CorpusProvider):
     def _extract_label_from_par(self, par_file: Path) -> str:
         par_text = read_text(par_file, encoding='utf8')
 
-        return self._decode_german(" ".join([line[7:] for line in par_text.splitlines() if line.startswith("ORT")]))
+        return self._decode_german(
+            " ".join([line.split("\t")[-1] for line in par_text.splitlines() if line.startswith("ORT")]))
 
     def _extract_labels_by_id(self, files: Iterable[Path]) -> Dict[str, str]:
         json_ending = "_annot.json"
@@ -88,16 +91,16 @@ class GermanClarinCorpusProvider(CorpusProvider):
             file
             in json_annotation_files)
 
-        # TODO decide whether to parse .par files
-        # par_annotation_files = [file for file in files if file.name.endswith(".par")]
-        # par_extracted = dict(
-        #     (name_without_extension(file), self._extract_label_from_par(file)) for file
-        #     in par_annotation_files)
-        # for key in set(par_extracted.keys()).intersection(set(json_extracted.keys())):
-        #     if par_extracted[key] != json_extracted[key]:
-        #         print()
-        #
-        # json_extracted.update(par_extracted)
+        par_annotation_files = [file for file in files if file.name.lower().endswith(".par")]
+
+        par_extracted = dict(
+            (name_without_extension(file), self._extract_label_from_par(file)) for file in par_annotation_files)
+        for key in set(par_extracted.keys()).intersection(set(json_extracted.keys())):
+            if par_extracted[key] != json_extracted[key]:
+                print('{}: par label "{}" differs from json label "{}"'.format(key, par_extracted[key],
+                                                                               json_extracted[key]))
+
+        json_extracted.update(par_extracted)
 
         return json_extracted
 
@@ -172,36 +175,40 @@ class GermanClarinCorpusProvider(CorpusProvider):
 # S = same as M but mixed German-English
 # W = same as M but with a Wizard
 # Y = Japanese, same room, push button
-vm1_id_German_filter_regex = re.compile("[klmngzjw][\s\S]*")
+vm1_id_german_filter_regex = re.compile("[klmngzjw][\s\S]*")
 
 # from the VM2 readme:
 # g(erman), e(nglish), j(apanese), m(ultilingual), n(oise)
-vm2_id_German_filter_regex = re.compile("g[\s\S]*|m[\s\S]*_GER")
+vm2_id_german_filter_regex = re.compile("g[\s\S]*|m[\s\S]*_GER")
 
 
-def clarin_corpus_providers_sorted_by_size(base_directory: Path) -> List[GermanClarinCorpusProvider]:
+def rvg_j(base_directory):
+    return GermanClarinCorpus("all.RVG-J.1.cmdi.18181.1490681704", base_directory)
+
+
+def clarin_corpora_sorted_by_size(base_directory: Path) -> List[GermanClarinCorpus]:
     return [
-        GermanClarinCorpusProvider("all.SC1.3.cmdi.15010.1490631864", base_directory,
-                                   umlaut_decoder=UmlautDecoder.quote_after_umlaut),
-        GermanClarinCorpusProvider("all.PD2.4.cmdi.16693.1490681127", base_directory),
-        GermanClarinCorpusProvider("all.ZIPTEL.3.cmdi.63058.1490624016", base_directory),
-        GermanClarinCorpusProvider("all.SC10.4.cmdi.13781.1490631055", base_directory,
-                                   umlaut_decoder=UmlautDecoder.try_quote_before_umlaut_then_after),
-        GermanClarinCorpusProvider("all.HEMPEL.4.cmdi.11610.1490680796", base_directory),
-        GermanClarinCorpusProvider("all.PD1.3.cmdi.16312.1490681066", base_directory),
-        GermanClarinCorpusProvider("all.VM1.3.cmdi.1508.1490625070", base_directory,
-                                   id_filter_regex=vm1_id_German_filter_regex,
-                                   training_test_split=TrainingTestSplit.training_only),
-        GermanClarinCorpusProvider("all.RVG-J.1.cmdi.18181.1490681704", base_directory),
-        GermanClarinCorpusProvider("all.ALC.4.cmdi.16602.1490632862", base_directory,
-                                   training_test_split=TrainingTestSplit.training_only),
-        GermanClarinCorpusProvider("all.VM2.3.cmdi.4260.1490625316", base_directory,
-                                   id_filter_regex=vm2_id_German_filter_regex,
-                                   training_test_split=TrainingTestSplit.training_only)
+        GermanClarinCorpus("all.SC1.3.cmdi.15010.1490631864", base_directory,
+                           umlaut_decoder=UmlautDecoder.quote_after_umlaut),
+        GermanClarinCorpus("all.PD2.4.cmdi.16693.1490681127", base_directory),
+        GermanClarinCorpus("all.ZIPTEL.3.cmdi.63058.1490624016", base_directory),
+        GermanClarinCorpus("all.SC10.4.cmdi.13781.1490631055", base_directory,
+                           umlaut_decoder=UmlautDecoder.try_quote_before_umlaut_then_after),
+        GermanClarinCorpus("all.HEMPEL.4.cmdi.11610.1490680796", base_directory),
+        GermanClarinCorpus("all.PD1.3.cmdi.16312.1490681066", base_directory),
+        GermanClarinCorpus("all.VM1.3.cmdi.1508.1490625070", base_directory,
+                           id_filter_regex=vm1_id_german_filter_regex,
+                           training_test_split=TrainingTestSplit.training_only),
+        rvg_j(base_directory),
+        GermanClarinCorpus("all.ALC.4.cmdi.16602.1490632862", base_directory,
+                           training_test_split=TrainingTestSplit.training_only),
+        GermanClarinCorpus("all.VM2.3.cmdi.4260.1490625316", base_directory,
+                           id_filter_regex=vm2_id_german_filter_regex,
+                           training_test_split=TrainingTestSplit.training_only)
     ]
 
 
-class GermanVoxforgeCorpusProvider(GermanClarinCorpusProvider):
+class GermanVoxforgeCorpus(GermanClarinCorpus):
     def __init__(self, base_directory: Path):
         super().__init__(
             corpus_name="german-speechdata-package-v2",
@@ -269,6 +276,7 @@ class GermanVoxforgeCorpusProvider(GermanClarinCorpusProvider):
             raise ParsingException("Error parsing annotation {}".format(xml_file))
 
 
-def german_corpus_providers(base_directory: Path) -> List[CorpusProvider]:
-    return clarin_corpus_providers_sorted_by_size(base_directory=base_directory) + \
-           [GermanVoxforgeCorpusProvider(base_directory=base_directory)]
+def german_corpus(base_directory: Path) -> CombinedCorpus:
+    return CombinedCorpus(
+        clarin_corpora_sorted_by_size(base_directory=base_directory) + \
+        [GermanVoxforgeCorpus(base_directory=base_directory)])

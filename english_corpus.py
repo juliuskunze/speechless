@@ -4,56 +4,19 @@ import subprocess
 import tarfile
 from functools import reduce
 from pathlib import Path
-from tarfile import *
+from tarfile import TarFile, TarInfo
 
 from collections import Counter
-from typing import List, Iterable, Optional, Dict, Callable, Tuple
+from typing import Iterable, Optional, List, Callable, Tuple, Dict
 from urllib import request
 
+from corpus import Corpus, TrainingTestSplit
 from grapheme_enconding import frequent_characters_in_english
 from labeled_example import LabeledExample
-from tools import mkdir, distinct, name_without_extension, extension, count_summary, group
+from tools import mkdir, name_without_extension, count_summary, distinct, extension
 
 
-class ParsingException(Exception):
-    pass
-
-
-class TrainingTestSplit:
-    training_only = lambda examples: (examples, [])
-    test_only = lambda examples: ([], examples)
-
-    @staticmethod
-    def randomly_by_directory(train_set_share: float = .9) -> Callable[
-        [List[LabeledExample]], Tuple[List[LabeledExample], List[LabeledExample]]]:
-        def split(examples: List[LabeledExample]) -> Tuple[List[LabeledExample], List[LabeledExample]]:
-            examples_by_directory = group(examples, key=lambda e: e.audio_directory)
-            directories = examples_by_directory.keys()
-
-            # split must be the same every time:
-            random.seed(42)
-            training_directories = set(random.sample(directories, round(train_set_share * len(directories))))
-
-            training_examples = [example for example in examples if example.audio_directory in training_directories]
-            test_examples = [example for example in examples if example.audio_directory not in training_directories]
-
-            return training_examples, test_examples
-
-        return split
-
-    @staticmethod
-    def by_directory(test_directory_name: str = "test") -> Callable[
-        [List[LabeledExample]], Tuple[List[LabeledExample], List[LabeledExample]]]:
-        def split(examples: List[LabeledExample]) -> Tuple[List[LabeledExample], List[LabeledExample]]:
-            training_examples = [example for example in examples if example.audio_directory.name == test_directory_name]
-            test_examples = [example for example in examples if example.audio_directory.name != test_directory_name]
-
-            return training_examples, test_examples
-
-        return split
-
-
-class CorpusProvider:
+class LibriSpeechCorpus(Corpus):
     def __init__(self, base_directory: Path,
                  base_source_url_or_directory: str = "http://www.openslr.org/resources/12/",
                  corpus_names: Iterable[str] = ("dev-clean", "dev-other", "test-clean", "test-other",
@@ -66,7 +29,8 @@ class CorpusProvider:
                  tags_to_ignore: Iterable[str] = list(),
                  id_filter_regex=re.compile('[\s\S]*'),
                  training_test_split: Callable[[List[LabeledExample]], Tuple[
-                     List[LabeledExample], List[LabeledExample]]] = TrainingTestSplit.randomly_by_directory(.9)):
+                     List[LabeledExample], List[LabeledExample]]] = TrainingTestSplit.randomly(.9)):
+        self.training_test_split = training_test_split
         self.id_filter_regex = id_filter_regex
         self.tags_to_ignore = tags_to_ignore
         self.allowed_characters = allowed_characters
@@ -93,7 +57,7 @@ class CorpusProvider:
                       for file in directory.iterdir() if file.is_file()]
 
         self.unfiltered_audio_files = [file for file in self.files if
-                                       (file.name.endswith(".flac") or file.name.endswith(".wav"))]
+                                       (file.name.lower().endswith(".flac") or file.name.lower().endswith(".wav"))]
         audio_files = [file for file in self.unfiltered_audio_files if
                        self.id_filter_regex.match(name_without_extension(file))]
         self.filtered_out_count = len(self.unfiltered_audio_files) - len(audio_files)
@@ -114,6 +78,10 @@ class CorpusProvider:
             [example(file) for file in audio_files if name_without_extension(file) in labels_with_tags_by_id.keys()],
             key=lambda x: x.id)
         self.examples_by_id = dict([(e.id, e) for e in self.examples])
+
+        training_examples, test_examples = self.training_test_split(self.examples)
+
+        super().__init__(self.examples, training_examples=training_examples, test_examples=test_examples)
 
     def _remove_tags_to_ignore(self, text: str) -> str:
         return reduce(lambda text, tag: text.replace(tag, ""), self.tags_to_ignore, text)
@@ -173,23 +141,24 @@ class CorpusProvider:
     def is_allowed(self, label: str) -> bool:
         return all(c in self.allowed_characters for c in label)
 
-    def csv_row(self):
+    def csv_rows(self):
         empty_examples = self.empty_examples()
-        return [" ".join(self.corpus_names),
-                self.file_type_summary(),
-                len(self.unfiltered_audio_files), self.filtered_out_count, self.id_filter_regex,
-                len(self.audio_ids_without_label), str(self.audio_ids_without_label[:10]),
-                len(self.label_ids_without_audio), self.label_ids_without_audio[:10],
-                self.tag_summary(),
-                len(self.examples),
-                len(self.invalid_examples_texts()), self.invalid_examples_summary(),
-                len(empty_examples), [e.id for e in empty_examples[:10]],
-                self.duplicate_label_count(), self.most_duplicated_labels()]
+        return [[" ".join(self.corpus_names),
+                 self.file_type_summary(),
+                 len(self.unfiltered_audio_files), self.filtered_out_count, self.id_filter_regex,
+                 len(self.audio_ids_without_label), str(self.audio_ids_without_label[:10]),
+                 len(self.label_ids_without_audio), self.label_ids_without_audio[:10],
+                 self.tag_summary(),
+                 len(self.examples),
+                 len(self.invalid_examples_texts()), self.invalid_examples_summary(),
+                 len(empty_examples), [e.id for e in empty_examples[:10]],
+                 self.duplicate_label_count(), self.most_duplicated_labels(),
+                 len(self.training_examples), len(self.test_examples)]]
 
     def summary(self) -> str:
         tags_summary = self.tag_summary()
 
-        description = "File types: {}\n{}{}{}{}{} extracted examples, of them {} invalid, {} empty, {} duplicate.\n".format(
+        description = "File types: {}\n{}{}{}{}{}{} extracted examples, of them {} invalid, {} empty, {} duplicate.\n{} training examples, {} test examples.".format(
             self.file_type_summary(),
             "Out of {} audio files, {} were excluded by regex {}\n".format(
                 len(self.unfiltered_audio_files), self.filtered_out_count,
@@ -204,11 +173,13 @@ class CorpusProvider:
                 self.label_ids_without_audio) > 0 else "",
 
             "Removed label tags: {}\n".format(tags_summary) if tags_summary != "" else "",
+            self.invalid_examples_summary(),
             len(self.examples),
             len(self.invalid_examples_texts()),
-            self.invalid_examples_summary(),
             len(self.empty_examples()),
-            self.duplicate_label_count())
+            self.duplicate_label_count(),
+            len(self.training_examples),
+            len(self.test_examples))
 
         return " ".join(self.corpus_names) + "\n" + "\n".join("\t" + line for line in description.splitlines())
 

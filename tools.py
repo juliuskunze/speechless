@@ -1,5 +1,6 @@
 from itertools import groupby
 from pathlib import Path
+from time import strftime
 
 from collections import OrderedDict, Counter
 from os import makedirs, path
@@ -58,3 +59,7 @@ def count_summary(sequence: List) -> str:
 
 def group(iterable, key, value=lambda x: x):
     return dict((k, list(map(value, values))) for k, values in groupby(sorted(iterable, key=key), key))
+
+
+def timestamp() -> str:
+    return strftime("%Y%m%d-%H%M%S")

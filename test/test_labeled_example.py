@@ -4,10 +4,10 @@ import librosa
 import numpy as np
 from unittest import TestCase
 
-from corpus_provider import CorpusProvider
+from english_corpus import LibriSpeechCorpus
 from labeled_example import SpectrogramType, SpectrogramFrequencyScale
 
-corpus = CorpusProvider(Path.home() / "speechless-data" / "corpus" / "English", corpus_names=["dev-clean"])
+corpus = LibriSpeechCorpus(Path.home() / "speechless-data" / "corpus" / "English", corpus_names=["dev-clean"])
 
 
 class LabeledExampleTest(TestCase):

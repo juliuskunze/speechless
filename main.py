@@ -1,60 +1,50 @@
 from pathlib import Path
-from time import strftime
 
-from corpus_provider import CorpusProvider
-from german_corpus_provider import german_corpus_providers
+from corpus import TrainingTestSplit
+from english_corpus import LibriSpeechCorpus
+from german_corpus import german_corpus
 from labeled_example import LabeledExample
+from net import Wav2Letter
+from net_with_corpus import Wav2LetterWithCorpus
 from recording import Recorder
-from spectrogram_batch import LabeledSpectrogramBatchGenerator
-from tools import mkdir, home_directory
+from tools import mkdir, home_directory, timestamp
 
 base_directory = home_directory() / "speechless-data"
 tensorboard_log_base_directory = base_directory / "logs"
 nets_base_directory = base_directory / "nets"
 recording_directory = base_directory / "recordings"
+
 corpus_base_direcory = base_directory / "corpus"
 english_corpus_directory = corpus_base_direcory / "English"
 german_corpus_directory = corpus_base_direcory / "German"
 spectrogram_cache_base_directory = base_directory / "spectrogram-cache"
+
 english_spectrogram_cache_directory = spectrogram_cache_base_directory / "English"
 german_spectrogram_cache_directory = spectrogram_cache_base_directory / "German"
 
+batch_size = 2
+mel_frequency_count = 128
+run_name = timestamp() + "-german-adam-small-learning-rate-complete-95"
+wav2letter = Wav2Letter(input_size_per_time_step=mel_frequency_count)
+corpus = LibriSpeechCorpus(
+    english_corpus_directory, corpus_names=["dev-clean"],
+    training_test_split=TrainingTestSplit.overfit(training_example_count=batch_size),
+    mel_frequency_count=mel_frequency_count)
 
-def timestamp() -> str:
-    return strftime("%Y%m%d-%H%M%S")
+wav2letter_with_corpus = Wav2LetterWithCorpus(wav2letter, corpus, batch_size=batch_size,
+                                              spectrogram_cache_directory=german_spectrogram_cache_directory)
 
 
-def train_wav2letter(mel_frequency_count: int = 128, epoch_size: int = 100) -> None:
+def load_best_wav2letter_model(mel_frequency_count: int = 128):
     from net import Wav2Letter
 
-    labeled_spectrogram_batch_generator = batch_generator(mel_frequency_count=mel_frequency_count)
-
-    wav2letter = Wav2Letter(input_size_per_time_step=mel_frequency_count,
-                            use_asg=True)
-
-    run_name = timestamp() + "-german-adam-small-learning-rate-complete-95"
-
-    wav2letter.train(labeled_spectrogram_batch_generator.as_training_batches(),
-                     tensor_board_log_directory=tensorboard_log_base_directory / run_name,
-                     net_directory=nets_base_directory / run_name,
-                     test_labeled_spectrogram_batch=labeled_spectrogram_batch_generator.preview_batch(),
-                     samples_per_epoch=labeled_spectrogram_batch_generator.batch_size * epoch_size)
+    return Wav2Letter(
+        input_size_per_time_step=mel_frequency_count,
+        load_model_from_directory=Path(nets_base_directory / "20170314-134351-adam-small-learning-rate-complete-95"),
+        load_epoch=1689)
 
 
-def batch_generator(is_training: bool = True, mel_frequency_count: int = 128) -> LabeledSpectrogramBatchGenerator:
-    # TODO use specified mel frequency count
-    corpus = CorpusProvider(english_corpus_directory, corpus_names=["dev-clean"])
-    # TODO fix this, sample randomly:
-    split_index = int(len(corpus.examples) * .95)
-
-    tiny_batch_size = 2
-    examples = corpus.examples[:split_index][:tiny_batch_size] if is_training else corpus.examples[split_index:]
-    return LabeledSpectrogramBatchGenerator(examples=examples,
-                                            spectrogram_cache_directory=german_spectrogram_cache_directory,
-                                            batch_size=tiny_batch_size)
-
-
-def record() -> LabeledExample:
+def record_plot_and_save() -> LabeledExample:
     from labeled_example_plotter import LabeledExamplePlotter
 
     print("Wait in silence to begin recording; wait in silence to terminate")
@@ -76,7 +66,7 @@ def predict_recording() -> None:
         print((description if description else labeled_example.id) + ": " + '"{}"'.format(predict(labeled_example)))
 
     def record_and_print_prediction(description: str = None) -> None:
-        print_prediction(record(), description=description)
+        print_prediction(record_plot_and_save(), description=description)
 
     def print_prediction_from_file(file_name: str, description: str = None) -> None:
         print_prediction(LabeledExample(recording_directory / file_name), description=description)
@@ -96,32 +86,13 @@ def predict_recording() -> None:
     print_example_predictions()
 
 
-def validate_best_model() -> None:
-    wav2_letter = load_best_wav2letter_model()
-
-    generator = batch_generator(is_training=False)
-
-    print(wav2_letter.loss(generator.as_validation_batches()))
+def summarize_german_corpus():
+    corpus = german_corpus(german_corpus_directory)
+    corpus.summarize_to_csv(base_directory / "summary.csv")
+    print(corpus.summary())
 
 
-def load_best_wav2letter_model(mel_frequency_count: int = 128):
-    from net import Wav2Letter
+summarize_german_corpus()
 
-    return Wav2Letter(
-        input_size_per_time_step=mel_frequency_count,
-        load_model_from_directory=Path(nets_base_directory / "20170314-134351-adam-small-learning-rate-complete-95"),
-        load_epoch=1689)
-
-
-def summarize_german_corpus() -> None:
-    import csv
-    with (base_directory / "summary.csv").open('w', encoding='utf8') as csv_summary_file:
-        writer = csv.writer(csv_summary_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-
-        for corpus_provider in german_corpus_providers(german_corpus_directory):
-            print(corpus_provider.summary())
-            writer.writerow(corpus_provider.csv_row())
-
-
-train_wav2letter(epoch_size=10)
-# summarize_german_corpus()
+# wav2letter_with_corpus.train(batches_per_epoch=10, tensor_board_log_directory=tensorboard_log_base_directory / run_name,
+#                              net_directory=nets_base_directory / run_name)

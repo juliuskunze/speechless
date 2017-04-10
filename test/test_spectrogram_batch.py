@@ -1,6 +1,6 @@
 from unittest import TestCase
 
-from spectrogram_batch import paginate
+from corpus import paginate
 
 
 class ToolsTest(TestCase):
