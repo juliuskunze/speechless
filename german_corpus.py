@@ -12,7 +12,6 @@ from labeled_example import LabeledExample
 from tools import read_text, single, single_or_none, name_without_extension
 
 _tags_to_ignore = [
-    "<usb>",  # truncated in the beginning
     "<häs>",  # "äh", "ähm" etc.
     "<%>",  # slip of the tongue, voice without meaning
     "*",  # slip of the tongue, following word unclear, but still comprehensible
@@ -83,7 +82,7 @@ class GermanClarinCorpus(LibriSpeechCorpus):
     def _extract_labels_by_id(self, files: Iterable[Path]) -> Dict[str, str]:
         json_ending = "_annot.json"
         json_annotation_files = \
-            [file for file in files if file.name.endswith(json_ending) if
+            [file for file in files if file.name.endswith(json_ending) and
              self.id_filter_regex.match(file.name[:-len(json_ending)])]
 
         json_extracted = dict(
@@ -91,7 +90,8 @@ class GermanClarinCorpus(LibriSpeechCorpus):
             file
             in json_annotation_files)
 
-        par_annotation_files = [file for file in files if file.name.lower().endswith(".par")]
+        par_annotation_files = [file for file in files if file.name.lower().endswith(".par")
+                                and self.id_filter_regex.match(name_without_extension(file).lower())]
 
         par_extracted = dict(
             (name_without_extension(file), self._extract_label_from_par(file)) for file in par_annotation_files)
@@ -181,25 +181,26 @@ vm1_id_german_filter_regex = re.compile("[klmngzjw][\s\S]*")
 # g(erman), e(nglish), j(apanese), m(ultilingual), n(oise)
 vm2_id_german_filter_regex = re.compile("g[\s\S]*|m[\s\S]*_GER")
 
-
-def rvg_j(base_directory):
-    return GermanClarinCorpus("all.RVG-J.1.cmdi.18181.1490681704", base_directory)
-
+# example fiw1e020 from SC10 corpus has a wrong label (.par/.json is also inconsistent), exclude it:
+sc10_broken_label_filter_regex = re.compile("(?!^fiw1e020$)[\s\S]*")
 
 def clarin_corpora_sorted_by_size(base_directory: Path) -> List[GermanClarinCorpus]:
     return [
         GermanClarinCorpus("all.SC1.3.cmdi.15010.1490631864", base_directory,
-                           umlaut_decoder=UmlautDecoder.quote_after_umlaut),
+                           umlaut_decoder=UmlautDecoder.quote_after_umlaut,
+                           training_test_split=TrainingTestSplit.test_only),
         GermanClarinCorpus("all.PD2.4.cmdi.16693.1490681127", base_directory),
         GermanClarinCorpus("all.ZIPTEL.3.cmdi.63058.1490624016", base_directory),
         GermanClarinCorpus("all.SC10.4.cmdi.13781.1490631055", base_directory,
-                           umlaut_decoder=UmlautDecoder.try_quote_before_umlaut_then_after),
+                           umlaut_decoder=UmlautDecoder.try_quote_before_umlaut_then_after,
+                           training_test_split=TrainingTestSplit.test_only,
+                           id_filter_regex=sc10_broken_label_filter_regex),
         GermanClarinCorpus("all.HEMPEL.4.cmdi.11610.1490680796", base_directory),
         GermanClarinCorpus("all.PD1.3.cmdi.16312.1490681066", base_directory),
         GermanClarinCorpus("all.VM1.3.cmdi.1508.1490625070", base_directory,
                            id_filter_regex=vm1_id_german_filter_regex,
                            training_test_split=TrainingTestSplit.training_only),
-        rvg_j(base_directory),
+        GermanClarinCorpus("all.RVG-J.1.cmdi.18181.1490681704", base_directory),
         GermanClarinCorpus("all.ALC.4.cmdi.16602.1490632862", base_directory,
                            training_test_split=TrainingTestSplit.training_only),
         GermanClarinCorpus("all.VM2.3.cmdi.4260.1490625316", base_directory,

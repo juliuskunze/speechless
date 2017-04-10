@@ -4,7 +4,6 @@ from corpus import TrainingTestSplit
 from english_corpus import LibriSpeechCorpus
 from german_corpus import german_corpus
 from labeled_example import LabeledExample
-from net import Wav2Letter
 from net_with_corpus import Wav2LetterWithCorpus
 from recording import Recorder
 from tools import mkdir, home_directory, timestamp
@@ -22,17 +21,26 @@ spectrogram_cache_base_directory = base_directory / "spectrogram-cache"
 english_spectrogram_cache_directory = spectrogram_cache_base_directory / "English"
 german_spectrogram_cache_directory = spectrogram_cache_base_directory / "German"
 
-batch_size = 2
-mel_frequency_count = 128
-run_name = timestamp() + "-german-adam-small-learning-rate-complete-95"
-wav2letter = Wav2Letter(input_size_per_time_step=mel_frequency_count)
-corpus = LibriSpeechCorpus(
-    english_corpus_directory, corpus_names=["dev-clean"],
-    training_test_split=TrainingTestSplit.overfit(training_example_count=batch_size),
-    mel_frequency_count=mel_frequency_count)
 
-wav2letter_with_corpus = Wav2LetterWithCorpus(wav2letter, corpus, batch_size=batch_size,
-                                              spectrogram_cache_directory=german_spectrogram_cache_directory)
+def train():
+    from net import Wav2Letter
+
+    batch_size = 2
+    mel_frequency_count = 128
+    run_name = timestamp() + "-german-adam-small-learning-rate-complete-95"
+
+    wav2letter = Wav2Letter(input_size_per_time_step=mel_frequency_count)
+    corpus = LibriSpeechCorpus(
+        english_corpus_directory, corpus_names=["dev-clean"],
+        training_test_split=TrainingTestSplit.overfit(training_example_count=batch_size),
+        mel_frequency_count=mel_frequency_count)
+
+    wav2letter_with_corpus = Wav2LetterWithCorpus(wav2letter, corpus, batch_size=batch_size,
+                                                  spectrogram_cache_directory=german_spectrogram_cache_directory)
+
+    wav2letter_with_corpus.train(batches_per_epoch=10,
+                                 tensor_board_log_directory=tensorboard_log_base_directory / run_name,
+                                 net_directory=nets_base_directory / run_name)
 
 
 def load_best_wav2letter_model(mel_frequency_count: int = 128):
@@ -93,6 +101,3 @@ def summarize_german_corpus():
 
 
 summarize_german_corpus()
-
-# wav2letter_with_corpus.train(batches_per_epoch=10, tensor_board_log_directory=tensorboard_log_base_directory / run_name,
-#                              net_directory=nets_base_directory / run_name)
