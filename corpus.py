@@ -46,7 +46,6 @@ class Corpus:
             for row in self.csv_rows():
                 writer.writerow(row)
 
-
 class CombinedCorpus(Corpus):
     def __init__(self, corpus_providers: List[Corpus]):
         self.corpora = corpus_providers
@@ -70,7 +69,6 @@ class CombinedCorpus(Corpus):
         return "\n\n".join([corpus_provider.summary() for corpus_provider in self.corpora]) + \
                "\n\n {} total, {} training, {} test".format(
                    len(self.examples), len(self.training_examples), len(self.test_examples))
-
 
 class TrainingTestSplit:
     training_only = lambda examples: (examples, [])

@@ -69,10 +69,11 @@ class LibriSpeechCorpus(Corpus):
         self.label_ids_without_audio = list(found_label_ids - found_audio_ids)
 
         def example(audio_file: Path) -> LabeledExample:
-            return LabeledExample(audio_file, label_from_id=lambda id: self._remove_tags_to_ignore(
-                labels_with_tags_by_id[id]),
-                                  mel_frequency_count=self.mel_frequency_count,
-                                  original_label_with_tags_from_id=lambda id: labels_with_tags_by_id[id])
+            return LabeledExample(
+                audio_file,
+                label_from_id=lambda id: self._fix_whitespace(self._remove_tags_to_ignore(labels_with_tags_by_id[id])),
+                mel_frequency_count=self.mel_frequency_count,
+                original_label_with_tags_from_id=lambda id: labels_with_tags_by_id[id])
 
         self.examples = sorted(
             [example(file) for file in audio_files if name_without_extension(file) in labels_with_tags_by_id.keys()],
@@ -85,6 +86,9 @@ class LibriSpeechCorpus(Corpus):
 
     def _remove_tags_to_ignore(self, text: str) -> str:
         return reduce(lambda text, tag: text.replace(tag, ""), self.tags_to_ignore, text)
+
+    def _fix_whitespace(self, text: str) -> str:
+        return " ".join(text.split()).strip()
 
     def _download_and_unpack_if_not_yet_done(self, corpus_name: str) -> Path:
         file_name = corpus_name + self.tar_gz_extension

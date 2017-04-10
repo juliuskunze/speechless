@@ -2,7 +2,7 @@ import json
 import re
 from pathlib import Path
 
-from typing import Iterable, Dict, Callable, Optional, List, Tuple
+from typing import Iterable, Dict, Callable, Optional, List, Tuple, Set
 from xml.etree import ElementTree
 
 from corpus import ParsingException, TrainingTestSplit, CombinedCorpus
@@ -12,6 +12,7 @@ from labeled_example import LabeledExample
 from tools import read_text, single, single_or_none, name_without_extension
 
 _tags_to_ignore = [
+    "<usb>",  # truncated in beginning or incomprehensible
     "<häs>",  # "äh", "ähm" etc.
     "<%>",  # slip of the tongue, voice without meaning
     "*",  # slip of the tongue, following word unclear, but still comprehensible
@@ -74,10 +75,17 @@ class GermanClarinCorpus(LibriSpeechCorpus):
                          training_test_split=training_test_split)
 
     def _extract_label_from_par(self, par_file: Path) -> str:
-        par_text = read_text(par_file, encoding='utf8')
+        par_text = ""
 
-        return self._decode_german(
-            " ".join([line.split("\t")[-1] for line in par_text.splitlines() if line.startswith("ORT")]))
+        try:
+            par_text = read_text(par_file, encoding="utf8")
+
+            def words_for_label(label_name: str):
+                return [line.split("\t")[-1] for line in par_text.splitlines() if line.startswith(label_name)]
+
+            return self._merge_transcriptions(words_for_label("ORT"), words_for_label("TR2"))
+        except Exception:
+            raise ParsingException("Error parsing annotation {}: {}".format(par_file, par_text[:500]))
 
     def _extract_labels_by_id(self, files: Iterable[Path]) -> Dict[str, str]:
         json_ending = "_annot.json"
@@ -106,43 +114,69 @@ class GermanClarinCorpus(LibriSpeechCorpus):
 
     def _extract_label_from_json(self, json_file: Path) -> str:
         json_text = read_text(json_file, encoding='utf8')
-        label_names = ("ORT", "word")
+
         try:
             j = json.loads(json_text)
             levels = j["levels"]
 
-            def is_level_empty(level: json) -> bool:
-                return len(level["items"]) == 0
+            def words_for_labels(label_names: Set[str]):
+                def is_level_empty(level: json) -> bool:
+                    return len(level["items"]) == 0
 
-            def is_level_useful(level: json) -> bool:
-                if is_level_empty(level):
-                    return False
+                def is_level_useful(level: json) -> bool:
+                    if is_level_empty(level):
+                        return False
 
-                return any([label for label in level["items"][0]["labels"] if label["name"] in label_names])
+                    return any([label for label in level["items"][0]["labels"] if label["name"] in label_names])
 
-            def word(transcription: json) -> str:
-                labels = transcription["labels"]
+                def word(transcription: json) -> str:
+                    labels = transcription["labels"]
 
-                matching_labels = [label for label in labels if label["name"] in label_names]
+                    matching_labels = [label for label in labels if label["name"] in label_names]
 
-                if len(matching_labels) == 0:
-                    raise Exception("No matching label names, found {} instead.".format(
-                        [label["name"] for label in labels]))
+                    if len(matching_labels) == 0:
+                        raise Exception("No matching label names, found {} instead.".format(
+                            [label["name"] for label in labels]))
 
-                matching_label = single(matching_labels)
-                return matching_label["value"]
+                    matching_label = single(matching_labels)
+                    return matching_label["value"]
 
-            has_empty_levels = len([level for level in levels if is_level_empty(level)]) != 0
+                has_empty_levels = len([level for level in levels if is_level_empty(level)]) != 0
 
-            words = single_or_none([[word(transcription) for
-                                     transcription in level["items"]] for level in levels if is_level_useful(level)])
+                words = single_or_none([[word(transcription) for
+                                         transcription in level["items"]] for level in levels if
+                                        is_level_useful(level)])
 
-            if words is None and has_empty_levels:
-                return ""
+                if words is None and has_empty_levels:
+                    return []
 
-            return self._decode_german(" ".join(words))
+                return words
+
+            # In the ZIPTEL corpus, ORT or word transcription often contains <usb> tags,
+            # while TR2 contains the truncated words instead, e. g. somethi~
+            # for better character recognition we use the latter.
+            # Why is TR2 not always used? Because it contains extra whitespace and more tags.
+            words = words_for_labels(label_names={"ORT", "word"})
+            tr2_words = words_for_labels(label_names={"TR2"})
+
+            return self._merge_transcriptions(words, tr2_words)
         except Exception:
             raise ParsingException("Error parsing annotation {}: {}".format(json_file, json_text[:500]))
+
+    def _merge_transcriptions(self, words: List[str], tr2_words: List[str]) -> str:
+        usb_tag = "<usb>"
+
+        def clean_tr2(tr2_word):
+            return tr2_word.replace('<Ger"ausch>', '').replace('<geräusch>', '').replace('<#>', '')
+
+        if len(words) > 0:
+            if words[0] == usb_tag:
+                words[0] = clean_tr2(tr2_words[0])
+
+            if words[-1] == usb_tag:
+                words[-1] = clean_tr2(tr2_words[-1])
+
+        return self._decode_german(" ".join(words))
 
     def _decode_german(self, text: str) -> str:
         # replace('é', 'e') because of TODO
@@ -150,10 +184,8 @@ class GermanClarinCorpus(LibriSpeechCorpus):
         # replace('.', ' ') because of ALC: 5204018034_h_00 contains "in l.a."
         # replace('-', ' ') because of some examples in e. g. ZIPTEL, PD2, SC10 like the following:
         # SC10: awed5070: "darf ich eine ic-fahrt zwischendurch unterbrechen"
-        decoded = self.umlaut_decoder(
+        return self.umlaut_decoder(
             text.lower().replace('é', 'e').replace('xe4', 'ä').replace('.', ' ').replace('-', ' '))
-
-        return decoded
 
 
 # from the VM1 readme:
@@ -183,6 +215,7 @@ vm2_id_german_filter_regex = re.compile("g[\s\S]*|m[\s\S]*_GER")
 
 # example fiw1e020 from SC10 corpus has a wrong label (.par/.json is also inconsistent), exclude it:
 sc10_broken_label_filter_regex = re.compile("(?!^fiw1e020$)[\s\S]*")
+
 
 def clarin_corpora_sorted_by_size(base_directory: Path) -> List[GermanClarinCorpus]:
     return [
@@ -220,7 +253,8 @@ class GermanVoxforgeCorpus(GermanClarinCorpus):
             umlaut_decoder=UmlautDecoder.none,
             # exclude files starting with dot:
             id_filter_regex=re.compile('[^.][\s\S]*', ),
-            training_test_split=TrainingTestSplit.by_directory())
+            training_test_split=TrainingTestSplit.by_directory(),
+            tags_to_ignore=[])
 
     def _extract_labels_by_id(self, files: Iterable[Path]):
         xml_ending = ".xml"
@@ -265,9 +299,11 @@ class GermanVoxforgeCorpus(GermanClarinCorpus):
         # "...vom preußischen grenzort laugszargen über tauragė ..."
         # replace('ú','u') in 2015-02-04-13-03-47_Kinect-Beam:
         # "... die von renault in setúbal hergestellte produktlinie ..."
-        return super()._decode_german(text).replace("co2", "co zwei").replace('ț', 't'). \
-            replace('š', 's').replace('č', 'c').replace('ę', 'e').replace('ō', 'o').replace('á', 'a'). \
-            replace('í', 'i').replace('ł', 'l').replace('à', 'a').replace('ė', 'e').replace('ú', 'u')
+        replaced = super()._decode_german(text).replace("co2", "co zwei").replace('ț', 't').replace('š', 's').replace(
+            'č', 'c').replace('ę', 'e').replace('ō', 'o').replace('á', 'a').replace('í', 'i').replace('ł', 'l').replace(
+            'à', 'a').replace('ė', 'e').replace('ú', 'u')
+
+        return replaced
 
     def _extract_label_from_xml(self, xml_file: Path) -> str:
         try:
@@ -279,5 +315,5 @@ class GermanVoxforgeCorpus(GermanClarinCorpus):
 
 def german_corpus(base_directory: Path) -> CombinedCorpus:
     return CombinedCorpus(
-        clarin_corpora_sorted_by_size(base_directory=base_directory) + \
+        clarin_corpora_sorted_by_size(base_directory=base_directory) +
         [GermanVoxforgeCorpus(base_directory=base_directory)])
