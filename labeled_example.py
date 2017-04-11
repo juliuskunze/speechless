@@ -7,7 +7,7 @@ import librosa
 import os
 from lazy import lazy
 from numpy import ndarray, mean, std, vectorize, dot
-from typing import List, Callable, Optional
+from typing import List, Optional, Tuple, Callable
 
 from tools import name_without_extension
 
@@ -27,28 +27,51 @@ def z_normalize(array: ndarray) -> ndarray:
     return (array - mean(array)) / std(array)
 
 
+class PositionalLabel:
+    def __init__(self, words_with_ranges: List[Tuple[str, Optional[Tuple[int, int]]]]):
+        self.words_with_ranges = words_with_ranges
+        self.words = [word for word, range in words_with_ranges]
+        self.label = " ".join(word for word in self.words if word)
+
+    @staticmethod
+    def without_positions(label: str) -> 'PositionalLabel':
+        return PositionalLabel([(label, None)])
+
+    def with_corrected_words(self, correction: Callable[[str], str]) -> 'PositionalLabel':
+        return PositionalLabel([(correction(word), range) for word, range in self.words_with_ranges])
+
+    def has_positions(self) -> bool:
+        range = self.words_with_ranges[0][1]
+        return range is not None
+
+
 class LabeledExample:
     def __init__(self,
                  audio_file: Path,
                  id: Optional[str] = None,
                  sample_rate_to_convert_to: int = 16000,
-                 label_from_id: Callable[[str], Optional[str]] = lambda id: None,
+                 label: Optional[str] = None,
                  fourier_window_length: int = 512,
                  hop_length: int = 128,
                  mel_frequency_count: int = 128,
-                 original_label_with_tags_from_id: Callable[[str], Optional[str]] = lambda id: None):
+                 original_label: str = None,
+                 positional_label: PositionalLabel = None):
         if id is None:
             id = name_without_extension(audio_file)
+
+        if positional_label is None:
+            positional_label = PositionalLabel.without_positions(label)
 
         # The default values for hop_length and fourier_window_length are powers of 2 near the values specified in the wave2letter paper.
         self.audio_file = audio_file
         self.sample_rate = sample_rate_to_convert_to
         self.id = id
-        self.label = label_from_id(id)
+        self.label = label
         self.fourier_window_length = fourier_window_length
         self.hop_length = hop_length
         self.mel_frequency_count = mel_frequency_count
-        self.original_label_with_tags = original_label_with_tags_from_id(id)
+        self.original_label_with_tags = original_label
+        self.positional_label = positional_label
 
     @property
     def audio_directory(self):

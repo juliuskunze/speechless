@@ -2,14 +2,15 @@ import json
 import re
 from pathlib import Path
 
+from collections import OrderedDict
 from typing import Iterable, Dict, Callable, Optional, List, Tuple, Set
 from xml.etree import ElementTree
 
 from corpus import ParsingException, TrainingTestSplit, CombinedCorpus
 from english_corpus import LibriSpeechCorpus
 from grapheme_enconding import frequent_characters_in_german
-from labeled_example import LabeledExample
-from tools import read_text, single, single_or_none, name_without_extension
+from labeled_example import LabeledExample, PositionalLabel
+from tools import read_text, single, single_or_none, name_without_extension, group
 
 _tags_to_ignore = [
     "<usb>",  # truncated in beginning or incomprehensible
@@ -62,6 +63,8 @@ class GermanClarinCorpus(LibriSpeechCorpus):
                      List[LabeledExample], List[LabeledExample]]] = TrainingTestSplit.randomly_grouped_by_directory()):
         self.umlaut_decoder = umlaut_decoder
 
+        print("Parsing corpus {}...".format(corpus_name))
+
         super().__init__(base_directory=base_directory,
                          base_source_url_or_directory=base_source_url_or_directory,
                          corpus_names=[corpus_name],
@@ -74,41 +77,33 @@ class GermanClarinCorpus(LibriSpeechCorpus):
                          mel_frequency_count=mel_frequency_count,
                          training_test_split=training_test_split)
 
-    def _extract_label_from_par(self, par_file: Path) -> str:
-        par_text = ""
+        print("\t{} without positional info.".format(len(self.examples_without_positional_labels)))
 
-        try:
-            par_text = read_text(par_file, encoding="utf8")
-
-            def words_for_label(label_name: str):
-                return [line.split("\t")[-1] for line in par_text.splitlines() if line.startswith(label_name)]
-
-            return self._merge_transcriptions(words_for_label("ORT"), words_for_label("TR2"))
-        except Exception:
-            raise ParsingException("Error parsing annotation {}: {}".format(par_file, par_text[:500]))
-
-    def _extract_labels_by_id(self, files: Iterable[Path]) -> Dict[str, str]:
+    def _extract_positional_label_by_id(self, files: Iterable[Path]) -> Dict[str, PositionalLabel]:
         json_ending = "_annot.json"
         json_annotation_files = \
             [file for file in files if file.name.endswith(json_ending) and
              self.id_filter_regex.match(file.name[:-len(json_ending)])]
 
-        json_extracted = dict(
-            (file.name[:-len(json_ending)], self._extract_label_from_json(file)) for
+        json_extracted = OrderedDict(
+            (file.name[:-len(json_ending)], self._extract_positional_label_from_json(file)) for
             file
             in json_annotation_files)
 
         par_annotation_files = [file for file in files if file.name.lower().endswith(".par")
                                 and self.id_filter_regex.match(name_without_extension(file).lower())]
 
-        par_extracted = dict(
-            (name_without_extension(file), self._extract_label_from_par(file)) for file in par_annotation_files)
-        for key in set(par_extracted.keys()).intersection(set(json_extracted.keys())):
-            if par_extracted[key] != json_extracted[key]:
-                print('{}: par label "{}" differs from json label "{}"'.format(key, par_extracted[key],
-                                                                               json_extracted[key]))
+        extracted = OrderedDict(
+            (name_without_extension(file), self._extract_positional_label_from_par(file)) for file in
+            par_annotation_files)
 
-        json_extracted.update(par_extracted)
+        for key in set(extracted.keys()).intersection(set(json_extracted.keys())):
+            if extracted[key].words != json_extracted[key].words:
+                print('{}: Words {} extracted from par differ from json {}'.format(key, extracted[key].words,
+                                                                                   json_extracted[key].words))
+
+        # json has positional information and overrides par
+        extracted.update(json_extracted)
 
         # TODO refactor
         if len(self.corpus_names) == 1 and ("ALC" in single(self.corpus_names)):
@@ -116,21 +111,21 @@ class GermanClarinCorpus(LibriSpeechCorpus):
             correctly_labeled_id_marker = "_h_"
             empty_labeled_id_marker = "_m_"
 
-            correct_ids = [id for id in json_extracted.keys() if correctly_labeled_id_marker in id]
+            correct_ids = [id for id in extracted.keys() if correctly_labeled_id_marker in id]
             for correct_id in correct_ids:
                 empty_labeled_id = correct_id.replace(correctly_labeled_id_marker, empty_labeled_id_marker)
-                json_extracted[empty_labeled_id] = json_extracted[correct_id]
+                extracted[empty_labeled_id] = extracted[correct_id]
 
-        return json_extracted
+        return extracted
 
-    def _extract_label_from_json(self, json_file: Path) -> str:
+    def _extract_positional_label_from_json(self, json_file: Path) -> PositionalLabel:
         json_text = read_text(json_file, encoding='utf8')
 
         try:
             j = json.loads(json_text)
             levels = j["levels"]
 
-            def words_for_labels(label_names: Set[str]):
+            def words_with_id_for_labels(label_names: Set[str]) -> List[Tuple[str, int]]:
                 def is_level_empty(level: json) -> bool:
                     return len(level["items"]) == 0
 
@@ -140,7 +135,7 @@ class GermanClarinCorpus(LibriSpeechCorpus):
 
                     return any([label for label in level["items"][0]["labels"] if label["name"] in label_names])
 
-                def word(transcription: json) -> str:
+                def word_with_id(transcription: json) -> Tuple[str, int]:
                     labels = transcription["labels"]
 
                     matching_labels = [label for label in labels if label["name"] in label_names]
@@ -150,27 +145,91 @@ class GermanClarinCorpus(LibriSpeechCorpus):
                             [label["name"] for label in labels]))
 
                     matching_label = single(matching_labels)
-                    return matching_label["value"]
+                    return matching_label["value"], transcription["id"]
 
-                has_empty_levels = len([level for level in levels if is_level_empty(level)]) != 0
+                words_with_id = single_or_none([[word_with_id(transcription) for
+                                                 transcription in level["items"]] for level in levels if
+                                                is_level_useful(level)])
 
-                words = single_or_none([[word(transcription) for
-                                         transcription in level["items"]] for level in levels if
-                                        is_level_useful(level)])
-
-                if words is None and has_empty_levels:
+                if words_with_id is None:
                     return []
 
-                return words
+                return words_with_id
 
-            words = words_for_labels(label_names={"ORT", "word"})
-            tr2_words = words_for_labels(label_names={"TR2"})
+            words_with_id = words_with_id_for_labels(label_names={"ORT", "word"})
+            tr2_words_with_id = words_with_id_for_labels(label_names={"TR2"})
 
-            return self._merge_transcriptions(words, tr2_words)
+            ids = [id for word, id in words_with_id]
+            words = self._merge_transcriptions_and_decode(words=[word for word, id in words_with_id],
+                                                          tr2_words=[word for word, id in tr2_words_with_id])
+
+            segment_ids_by_word_id = group(j["links"], key=lambda link: link["fromID"], value=lambda link: link["toID"])
+
+            def sampel_range_by_segment_id(level_names: Iterable[str]) -> Dict[int, Tuple[int, int]]:
+                return OrderedDict(
+                    (segment["id"], (segment["sampleStart"], segment["sampleStart"] + segment["sampleDur"] + 1))
+                    for level in levels
+                    if level["type"] == "SEGMENT" and level["name"] in level_names
+                    for segment in level["items"])
+
+            mas_sample_range_by_segment_id = sampel_range_by_segment_id(level_names=("MAS",))
+            mau_sample_range_by_segment_id = sampel_range_by_segment_id(level_names=("MAU",))
+            pho_sample_range_by_segment_id = sampel_range_by_segment_id(level_names=("PHO", "phonetic"))
+
+            def sampel_ranges_by_word_id(id: int) -> List[Tuple[int, int]]:
+                segment_ids = segment_ids_by_word_id[id] if id in segment_ids_by_word_id else []
+
+                def a(x):
+                    return [x[segment_id]
+                            for segment_id in segment_ids
+                            if segment_id in x]
+
+                mas_sample_ranges = a(mas_sample_range_by_segment_id)
+                mau_sample_ranges = a(mau_sample_range_by_segment_id)
+                pho_sample_ranges = a(pho_sample_range_by_segment_id)
+
+                return pho_sample_ranges if pho_sample_ranges else (
+                    mas_sample_ranges if mas_sample_ranges else mau_sample_ranges)
+
+            def merge_consecutive_ranges(ranges: List[Tuple[int, int]]) -> Tuple[int, int]:
+                def is_not_empty(range: Tuple[int, int]):
+                    return range[0] + 1 != range[1]
+
+                s = sorted((range for range in ranges if is_not_empty(range)), key=lambda range: range[0])[:-1]
+                for index, range in enumerate(s):
+                    next_range = ranges[index + 1]
+
+                    if range[1] != next_range[0]:
+                        print("Ranges {} of a word are not consecutive.".format(s))
+
+                return ranges[0][0], ranges[-1][1]
+
+            def sample_range_or_none_by_word_id(id: int):
+                ranges = sampel_ranges_by_word_id(id)
+
+                return merge_consecutive_ranges(ranges) if ranges else None
+
+            return PositionalLabel([(word, sample_range_or_none_by_word_id(id)) for word, id in zip(words, ids)])
+
         except Exception:
             raise ParsingException("Error parsing annotation {}: {}".format(json_file, json_text[:500]))
 
-    def _merge_transcriptions(self, words: List[str], tr2_words: List[str]) -> str:
+    def _extract_positional_label_from_par(self, par_file: Path) -> PositionalLabel:
+        par_text = ""
+
+        try:
+            par_text = read_text(par_file, encoding="utf8")
+
+            def words_for_label(label_name: str):
+                return [line.split("\t")[-1] for line in par_text.splitlines() if line.startswith(label_name)]
+
+            return PositionalLabel(
+                [(word, None) for word in
+                 self._merge_transcriptions_and_decode(words_for_label("ORT"), words_for_label("TR2"))])
+        except Exception:
+            raise ParsingException("Error parsing annotation {}: {}".format(par_file, par_text[:500]))
+
+    def _merge_transcriptions_and_decode(self, words: List[str], tr2_words: List[str]) -> List[str]:
         usb_tag = "<usb>"
 
         def clean_tr2(tr2_word):
@@ -189,9 +248,9 @@ class GermanClarinCorpus(LibriSpeechCorpus):
                     raise ParsingException("TR2 word count differs.")
                 words[-1] = clean_tr2(tr2_words[-1])
 
-        return self._decode_german(" ".join(words))
+        return [self._correct_german(word) for word in words]
 
-    def _decode_german(self, text: str) -> str:
+    def _correct_german(self, text: str) -> str:
         # replace('é', 'e') because of TODO
         # replace('xe4', 'ä') because of F09S1MP-Mikro_Prompt_20 (+7 more): " timo hat b  xe4ten gesagt"
         # replace('.', ' ') because of ALC: 5204018034_h_00 contains "in l.a."
@@ -232,15 +291,10 @@ sc10_broken_label_filter_regex = re.compile("(?!^fiw1e020$)[\s\S]*")
 
 def clarin_corpora_sorted_by_size(base_directory: Path) -> List[GermanClarinCorpus]:
     return [
-        GermanClarinCorpus("all.SC1.3.cmdi.15010.1490631864", base_directory,
-                           umlaut_decoder=UmlautDecoder.quote_after_umlaut,
-                           training_test_split=TrainingTestSplit.test_only),
-        GermanClarinCorpus("all.PD2.4.cmdi.16693.1490681127", base_directory),
-        GermanClarinCorpus("all.ZIPTEL.3.cmdi.63058.1490624016", base_directory),
-        GermanClarinCorpus("all.SC10.4.cmdi.13781.1490631055", base_directory,
-                           umlaut_decoder=UmlautDecoder.try_quote_before_umlaut_then_after,
-                           training_test_split=TrainingTestSplit.test_only,
-                           id_filter_regex=sc10_broken_label_filter_regex),
+        sc1(base_directory),
+        pd2(base_directory),
+        ziptel(base_directory),
+        sc10(base_directory),
         GermanClarinCorpus("all.HEMPEL.4.cmdi.11610.1490680796", base_directory),
         GermanClarinCorpus("all.PD1.3.cmdi.16312.1490681066", base_directory),
         GermanClarinCorpus("all.VM1.3.cmdi.1508.1490625070", base_directory,
@@ -253,6 +307,27 @@ def clarin_corpora_sorted_by_size(base_directory: Path) -> List[GermanClarinCorp
                            id_filter_regex=vm2_id_german_filter_regex,
                            training_test_split=TrainingTestSplit.training_only)
     ]
+
+
+def pd2(base_directory):
+    return GermanClarinCorpus("all.PD2.4.cmdi.16693.1490681127", base_directory)
+
+
+def ziptel(base_directory):
+    return GermanClarinCorpus("all.ZIPTEL.3.cmdi.63058.1490624016", base_directory)
+
+
+def sc10(base_directory):
+    return GermanClarinCorpus("all.SC10.4.cmdi.13781.1490631055", base_directory,
+                              umlaut_decoder=UmlautDecoder.try_quote_before_umlaut_then_after,
+                              training_test_split=TrainingTestSplit.test_only,
+                              id_filter_regex=sc10_broken_label_filter_regex)
+
+
+def sc1(base_directory):
+    return GermanClarinCorpus("all.SC1.3.cmdi.15010.1490631864", base_directory,
+                              umlaut_decoder=UmlautDecoder.quote_after_umlaut,
+                              training_test_split=TrainingTestSplit.test_only)
 
 
 class GermanVoxforgeCorpus(GermanClarinCorpus):
@@ -269,7 +344,7 @@ class GermanVoxforgeCorpus(GermanClarinCorpus):
             training_test_split=TrainingTestSplit.by_directory(),
             tags_to_ignore=[])
 
-    def _extract_labels_by_id(self, files: Iterable[Path]):
+    def _extract_positional_label_by_id(self, files: Iterable[Path]) -> Dict[str, PositionalLabel]:
         xml_ending = ".xml"
 
         microphone_endings = [
@@ -284,13 +359,14 @@ class GermanVoxforgeCorpus(GermanClarinCorpus):
         xml_files = [file for file in files if file.name.endswith(xml_ending) if
                      self.id_filter_regex.match(name_without_extension(file))]
 
-        return dict(
-            (name_without_extension(file) + microphone_ending, self._extract_label_from_xml(file))
+        return OrderedDict(
+            (name_without_extension(file) + microphone_ending,
+             PositionalLabel.without_positions(self._extract_label_from_xml(file)))
             for file in xml_files
             for microphone_ending in microphone_endings
             if (Path(file.parent) / (name_without_extension(file) + microphone_ending + ".wav")).exists())
 
-    def _decode_german(self, text: str) -> str:
+    def _correct_german(self, text: str) -> str:
         # replace("co2", "co zwei") for e. g. 2014-03-19-16-39-20_Kinect-Beam
         # replace('ț', 't') for e. g. 2015-01-27-11-32-50_Kinect-Beam:
         # "durchlaufende wagen bis constanța wie sie vor dem krieg existierten wurden allerdings nicht mehr eingeführt"
@@ -312,7 +388,7 @@ class GermanVoxforgeCorpus(GermanClarinCorpus):
         # "...vom preußischen grenzort laugszargen über tauragė ..."
         # replace('ú','u') in 2015-02-04-13-03-47_Kinect-Beam:
         # "... die von renault in setúbal hergestellte produktlinie ..."
-        replaced = super()._decode_german(text).replace("co2", "co zwei").replace('ț', 't').replace('š', 's').replace(
+        replaced = super()._correct_german(text).replace("co2", "co zwei").replace('ț', 't').replace('š', 's').replace(
             'č', 'c').replace('ę', 'e').replace('ō', 'o').replace('á', 'a').replace('í', 'i').replace('ł', 'l').replace(
             'à', 'a').replace('ė', 'e').replace('ú', 'u')
 
@@ -320,7 +396,7 @@ class GermanVoxforgeCorpus(GermanClarinCorpus):
 
     def _extract_label_from_xml(self, xml_file: Path) -> str:
         try:
-            return self._decode_german(
+            return self._correct_german(
                 ElementTree.parse(str(xml_file)).getroot().find('.//cleaned_sentence').text.lower())
         except Exception:
             raise ParsingException("Error parsing annotation {}".format(xml_file))

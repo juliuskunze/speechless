@@ -12,7 +12,7 @@ from keras.optimizers import Optimizer, Adam
 from lazy import lazy
 from numpy import ndarray, zeros, array, mean, reshape
 from os import makedirs
-from typing import List, Callable, Iterable
+from typing import List, Callable, Iterable, Tuple, Dict
 
 from corpus import LabeledSpectrogram
 from grapheme_enconding import CtcGraphemeEncoding, frequent_characters_in_english, AsgGraphemeEncoding
@@ -267,7 +267,7 @@ class Wav2Letter:
                                                           write_images=True)] if backend.backend() == 'tensorflow' else []
         return tensorboard_if_running_tensorboard + [CustomCallback()]
 
-    def _input_batch_and_prediction_lengths(self, spectrograms: List[ndarray]):
+    def _input_batch_and_prediction_lengths(self, spectrograms: List[ndarray]) -> Tuple[ndarray, List[int]]:
         batch_size = len(spectrograms)
         input_size_per_time_step = spectrograms[0].shape[1]
         input_lengths = [spectrogram.shape[0] for spectrogram in spectrograms]
@@ -278,7 +278,7 @@ class Wav2Letter:
 
         return input_batch, prediction_lengths
 
-    def _training_input_dictionary(self, labeled_spectrogram_batch: List[LabeledSpectrogram]) -> dict:
+    def _training_input_dictionary(self, labeled_spectrogram_batch: List[LabeledSpectrogram]) -> Dict[str, ndarray]:
         spectrograms = [x.spectrogram() for x in labeled_spectrogram_batch]
         labels = [x.label() for x in labeled_spectrogram_batch]
         input_batch, prediction_lengths = self._input_batch_and_prediction_lengths(spectrograms)
