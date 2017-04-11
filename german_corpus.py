@@ -59,7 +59,7 @@ class GermanClarinCorpus(LibriSpeechCorpus):
                  tags_to_ignore: Iterable[str] = _tags_to_ignore,
                  id_filter_regex=re.compile('[\s\S]*'),
                  training_test_split: Callable[[List[LabeledExample]], Tuple[
-                     List[LabeledExample], List[LabeledExample]]] = TrainingTestSplit.randomly_by_directory()):
+                     List[LabeledExample], List[LabeledExample]]] = TrainingTestSplit.randomly_grouped_by_directory()):
         self.umlaut_decoder = umlaut_decoder
 
         super().__init__(base_directory=base_directory,
@@ -110,6 +110,17 @@ class GermanClarinCorpus(LibriSpeechCorpus):
 
         json_extracted.update(par_extracted)
 
+        # TODO refactor
+        if len(self.corpus_names) == 1 and ("ALC" in single(self.corpus_names)):
+            # exactly half have no label: can be fixed by using 0061006007_h_00.par or _annot.json instead of 0061006007_m_00_annot.json etc.
+            correctly_labeled_id_marker = "_h_"
+            empty_labeled_id_marker = "_m_"
+
+            correct_ids = [id for id in json_extracted.keys() if correctly_labeled_id_marker in id]
+            for correct_id in correct_ids:
+                empty_labeled_id = correct_id.replace(correctly_labeled_id_marker, empty_labeled_id_marker)
+                json_extracted[empty_labeled_id] = json_extracted[correct_id]
+
         return json_extracted
 
     def _extract_label_from_json(self, json_file: Path) -> str:
@@ -152,10 +163,6 @@ class GermanClarinCorpus(LibriSpeechCorpus):
 
                 return words
 
-            # In the ZIPTEL corpus, ORT or word transcription often contains <usb> tags,
-            # while TR2 contains the truncated words instead, e. g. somethi~
-            # for better character recognition we use the latter.
-            # Why is TR2 not always used? Because it contains extra whitespace and more tags.
             words = words_for_labels(label_names={"ORT", "word"})
             tr2_words = words_for_labels(label_names={"TR2"})
 
@@ -169,11 +176,17 @@ class GermanClarinCorpus(LibriSpeechCorpus):
         def clean_tr2(tr2_word):
             return tr2_word.replace('<Ger"ausch>', '').replace('<geräusch>', '').replace('<#>', '')
 
+        # In the ZIPTEL corpus, ORT or word transcription often contains <usb> tags,
+        # while TR2 contains the truncated words instead, e. g. somethi~
+        # for better character recognition we use the latter.
+        # Why is TR2 not always used? Because it contains extra whitespace and more tags.
         if len(words) > 0:
             if words[0] == usb_tag:
                 words[0] = clean_tr2(tr2_words[0])
 
             if words[-1] == usb_tag:
+                if len(tr2_words) != len(words):
+                    raise ParsingException("TR2 word count differs.")
                 words[-1] = clean_tr2(tr2_words[-1])
 
         return self._decode_german(" ".join(words))
@@ -235,7 +248,7 @@ def clarin_corpora_sorted_by_size(base_directory: Path) -> List[GermanClarinCorp
                            training_test_split=TrainingTestSplit.training_only),
         GermanClarinCorpus("all.RVG-J.1.cmdi.18181.1490681704", base_directory),
         GermanClarinCorpus("all.ALC.4.cmdi.16602.1490632862", base_directory,
-                           training_test_split=TrainingTestSplit.training_only),
+                           training_test_split=TrainingTestSplit.randomly_grouped_by(lambda e: e.id[:3])),
         GermanClarinCorpus("all.VM2.3.cmdi.4260.1490625316", base_directory,
                            id_filter_regex=vm2_id_german_filter_regex,
                            training_test_split=TrainingTestSplit.training_only)

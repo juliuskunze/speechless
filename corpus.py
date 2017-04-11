@@ -5,8 +5,9 @@ from pathlib import Path
 import numpy
 from numpy import ndarray
 from os import makedirs
-from typing import List, Iterable, Callable, Tuple
+from typing import List, Iterable, Callable, Tuple, Any
 
+import tools
 from labeled_example import LabeledExample
 from tools import group
 
@@ -25,10 +26,22 @@ class Corpus:
         self.training_examples = training_examples
         self.test_examples = test_examples
 
-        overlapping = set(e.id for e in self.test_examples).intersection(set(e.id for e in self.training_examples))
+        duplicate_ids = tools.duplicates(e.id for e in examples)
+        duplicate_training_ids = tools.duplicates(e.id for e in training_examples)
+        duplicate_test_ids = tools.duplicates(e.id for e in test_examples)
+        overlapping_ids = tools.duplicates(e.id for e in (test_examples + training_examples))
 
-        if len(overlapping) > 0:
-            raise ValueError("Overlapping training and test set!")
+        if len(duplicate_ids) > 0:
+            raise ValueError("Duplicate ids in examples: {}".format(duplicate_ids))
+
+        if len(duplicate_training_ids) > 0:
+            raise ValueError("Duplicate ids in training examples: {}".format(duplicate_training_ids))
+
+        if len(duplicate_test_ids) > 0:
+            raise ValueError("Duplicate ds in test examples: {}".format(duplicate_test_ids))
+
+        if len(overlapping_ids) > 0:
+            raise ValueError("Overlapping training and test set: {}".format(overlapping_ids))
 
     @abstractmethod
     def csv_rows(self) -> List[str]:
@@ -45,6 +58,7 @@ class Corpus:
 
             for row in self.csv_rows():
                 writer.writerow(row)
+
 
 class CombinedCorpus(Corpus):
     def __init__(self, corpus_providers: List[Corpus]):
@@ -70,23 +84,24 @@ class CombinedCorpus(Corpus):
                "\n\n {} total, {} training, {} test".format(
                    len(self.examples), len(self.training_examples), len(self.test_examples))
 
+
 class TrainingTestSplit:
     training_only = lambda examples: (examples, [])
     test_only = lambda examples: ([], examples)
 
     @staticmethod
-    def randomly_by_directory(training_share: float = .9) -> Callable[
+    def randomly_grouped_by(key_from_example: Callable[[LabeledExample], Any], training_share: float = .9) -> Callable[
         [List[LabeledExample]], Tuple[List[LabeledExample], List[LabeledExample]]]:
         def split(examples: List[LabeledExample]) -> Tuple[List[LabeledExample], List[LabeledExample]]:
-            examples_by_directory = group(examples, key=lambda e: e.audio_directory)
+            examples_by_directory = group(examples, key=key_from_example)
             directories = examples_by_directory.keys()
 
             # split must be the same every time:
             random.seed(42)
-            training_directories = set(random.sample(directories, int(training_share * len(directories))))
+            keys = set(random.sample(directories, int(training_share * len(directories))))
 
-            training_examples = [example for example in examples if example.audio_directory in training_directories]
-            test_examples = [example for example in examples if example.audio_directory not in training_directories]
+            training_examples = [example for example in examples if key_from_example(example) in keys]
+            test_examples = [example for example in examples if key_from_example(example) not in keys]
 
             return training_examples, test_examples
 
@@ -95,16 +110,12 @@ class TrainingTestSplit:
     @staticmethod
     def randomly(training_share: float = .9) -> Callable[
         [List[LabeledExample]], Tuple[List[LabeledExample], List[LabeledExample]]]:
-        def split(examples: List[LabeledExample]) -> Tuple[List[LabeledExample], List[LabeledExample]]:
-            # split must be the same every time:
-            random.seed(42)
-            training_examples = random.sample(examples, int(training_share * len(examples)))
-            training_example_set = set(training_examples)
-            test_examples = [example for example in examples if example not in training_example_set]
+        return TrainingTestSplit.randomly_grouped_by(lambda e: e.id, training_share=training_share)
 
-            return training_examples, test_examples
-
-        return split
+    @staticmethod
+    def randomly_grouped_by_directory(training_share: float = .9) -> Callable[
+        [List[LabeledExample]], Tuple[List[LabeledExample], List[LabeledExample]]]:
+        return TrainingTestSplit.randomly_grouped_by(lambda e: e.audio_directory, training_share=training_share)
 
     @staticmethod
     def overfit(training_example_count: int) -> Callable[

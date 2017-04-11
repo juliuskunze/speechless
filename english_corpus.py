@@ -29,7 +29,7 @@ class LibriSpeechCorpus(Corpus):
                  tags_to_ignore: Iterable[str] = list(),
                  id_filter_regex=re.compile('[\s\S]*'),
                  training_test_split: Callable[[List[LabeledExample]], Tuple[
-                     List[LabeledExample], List[LabeledExample]]] = TrainingTestSplit.randomly(.9)):
+                     List[LabeledExample], List[LabeledExample]]] = TrainingTestSplit.randomly()):
         self.training_test_split = training_test_split
         self.id_filter_regex = id_filter_regex
         self.tags_to_ignore = tags_to_ignore
@@ -75,14 +75,14 @@ class LibriSpeechCorpus(Corpus):
                 mel_frequency_count=self.mel_frequency_count,
                 original_label_with_tags_from_id=lambda id: labels_with_tags_by_id[id])
 
-        self.examples = sorted(
-            [example(file) for file in audio_files if name_without_extension(file) in labels_with_tags_by_id.keys()],
-            key=lambda x: x.id)
-        self.examples_by_id = dict([(e.id, e) for e in self.examples])
+        self.examples_with_empty = [example(file) for file in audio_files if
+                                    name_without_extension(file) in labels_with_tags_by_id.keys()]
 
-        training_examples, test_examples = self.training_test_split(self.examples)
+        examples = sorted([e for e in self.examples_with_empty if e.label], key=lambda x: x.id)
 
-        super().__init__(self.examples, training_examples=training_examples, test_examples=test_examples)
+        training_examples, test_examples = self.training_test_split(examples)
+
+        super().__init__(examples=examples, training_examples=training_examples, test_examples=test_examples)
 
     def _remove_tags_to_ignore(self, text: str) -> str:
         return reduce(lambda text, tag: text.replace(tag, ""), self.tags_to_ignore, text)
@@ -162,7 +162,7 @@ class LibriSpeechCorpus(Corpus):
     def summary(self) -> str:
         tags_summary = self.tag_summary()
 
-        description = "File types: {}\n{}{}{}{}{}{} extracted examples, of them {} invalid, {} empty, {} duplicate.\n{} training examples, {} test examples.".format(
+        description = "File types: {}\n{}{}{}{}{}{} extracted examples, of them {} invalid, {} empty (will be excluded), {} duplicate.\n{} training examples, {} test examples.".format(
             self.file_type_summary(),
             "Out of {} audio files, {} were excluded by regex {}\n".format(
                 len(self.unfiltered_audio_files), self.filtered_out_count,
@@ -215,7 +215,7 @@ class LibriSpeechCorpus(Corpus):
                 for file in directory.glob('**/*.*') if file.is_file()]
 
     def empty_examples(self):
-        return [example for example in self.examples if example.label == ""]
+        return [example for example in self.examples_with_empty if not example.label]
 
     def duplicate_label_count(self):
         return len(self.examples) - len(set(e.label for e in self.examples))

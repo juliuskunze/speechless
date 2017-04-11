@@ -4,7 +4,7 @@ from time import strftime
 
 from collections import OrderedDict, Counter
 from os import makedirs, path
-from typing import List, Any
+from typing import List, Any, Iterable
 
 
 def single(sequence: List) -> Any:
@@ -16,6 +16,8 @@ def single(sequence: List) -> Any:
 
 
 def single_or_none(sequence: List) -> Any:
+    assert (len(sequence) <= 1)
+
     return next(iter(sequence), None)
 
 
@@ -63,3 +65,7 @@ def group(iterable, key, value=lambda x: x):
 
 def timestamp() -> str:
     return strftime("%Y%m%d-%H%M%S")
+
+
+def duplicates(sequence: Iterable) -> List:
+    return [item for item, count in Counter(sequence).items() if count > 1]
