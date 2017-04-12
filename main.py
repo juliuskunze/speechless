@@ -1,6 +1,7 @@
 from pathlib import Path
 
-from corpus import TrainingTestSplit
+from keras.optimizers import Adam
+
 from english_corpus import LibriSpeechCorpus
 from german_corpus import german_corpus
 from labeled_example import LabeledExample
@@ -25,21 +26,24 @@ german_spectrogram_cache_directory = spectrogram_cache_base_directory / "German"
 def train():
     from net import Wav2Letter
 
-    batch_size = 2
+    batch_size = 64
     mel_frequency_count = 128
-    run_name = timestamp() + "-german-adam-small-learning-rate-complete-95"
+    run_name = timestamp() + "-adam-medium-learning-rate-complete-95"
 
-    wav2letter = Wav2Letter(input_size_per_time_step=mel_frequency_count)
+    wav2letter = Wav2Letter(input_size_per_time_step=mel_frequency_count,
+                            optimizer=Adam(3e-4))
+
+    training_share = .95
     corpus = LibriSpeechCorpus(
-        english_corpus_directory, corpus_names=["dev-clean"],
-        training_test_split=TrainingTestSplit.overfit(training_example_count=batch_size),
+        english_corpus_directory,
+        training_test_split=lambda examples: (
+            examples[:int(len(examples) * training_share)], examples[int(len(examples) * .95):]),
         mel_frequency_count=mel_frequency_count)
 
     wav2letter_with_corpus = Wav2LetterWithCorpus(wav2letter, corpus, batch_size=batch_size,
                                                   spectrogram_cache_directory=german_spectrogram_cache_directory)
 
-    wav2letter_with_corpus.train(batches_per_epoch=10,
-                                 tensor_board_log_directory=tensorboard_log_base_directory / run_name,
+    wav2letter_with_corpus.train(tensor_board_log_directory=tensorboard_log_base_directory / run_name,
                                  net_directory=nets_base_directory / run_name)
 
 
@@ -100,4 +104,4 @@ def summarize_german_corpus():
     print(corpus.summary())
 
 
-summarize_german_corpus()
+train()

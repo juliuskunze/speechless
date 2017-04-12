@@ -148,7 +148,7 @@ class LibriSpeechCorpus(Corpus):
                     parts = line.split()
                     id = parts[0]
                     label = " ".join(parts[1:])
-                    positional_label_by_id[id] = (label.lower(), None)
+                    positional_label_by_id[id] = PositionalLabel.without_positions(label.lower())
         return positional_label_by_id
 
     def is_allowed(self, label: str) -> bool:
