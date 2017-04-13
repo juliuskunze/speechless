@@ -42,9 +42,10 @@ class ExpectationVsPrediction:
         return self.word_error_count / self.expected_word_count
 
     def __str__(self):
-        return 'Expected:  "{}"\nPredicted: "{}"\nErrors: {} letters (rate {}), {} words (rate {}).'.format(
-            self.expected, self.predicted, self.letter_error_count,
-            self.letter_error_rate, self.word_error_count, self.word_error_rate)
+        return 'Expected:  "{}"\nPredicted: "{}"\nErrors: {} letters ({}%), {} words ({}%).'.format(
+            self.expected, self.predicted,
+            self.letter_error_count, round(self.letter_error_rate * 100),
+            self.word_error_count, round(self.word_error_rate * 100))
 
 
 class ExpectationsVsPredictions:
@@ -71,11 +72,9 @@ class ExpectationsVsPredictions:
         return "\n\n".join(str(r) for r in self.results) + "\n\n" + self.summary_line()
 
     def summary_line(self):
-        return "Errors on average: {} letters (rate {}), {} words (rate {}).".format(
-            self.average_letter_error_count,
-            self.average_letter_error_rate,
-            self.average_word_error_count,
-            self.average_word_error_rate)
+        return "Errors on average: {:.1f} letters ({:.2f}%), {:.1f} words ({:.2f}%).".format(
+            self.average_letter_error_count, self.average_letter_error_rate * 100,
+            self.average_word_error_count, self.average_word_error_rate * 100)
 
 
 class Wav2Letter:

@@ -24,12 +24,12 @@ english_spectrogram_cache_directory = spectrogram_cache_base_directory / "Englis
 german_spectrogram_cache_directory = spectrogram_cache_base_directory / "German"
 
 
-def train():
+def train_transfer_english_to_german():
     from net_with_corpus import Wav2LetterWithCorpus
 
     batch_size = 64
     mel_frequency_count = 128
-    batches_per_epoch = 10
+    batches_per_epoch = 100
     layer_count = 11
     trainable_layer_count = 1
     frozen_layer_count = layer_count - trainable_layer_count
@@ -134,12 +134,12 @@ def load_german_corpus():
 def predict_german_on_english_model():
     wav2letter = load_best_wav2letter_model(allowed_characters=frequent_characters_in_german)
 
-    corpus = load_german_corpus()
+    corpus = sc10(german_corpus_directory, training_test_split=lambda examples: ([], examples[:128]))
 
     batch_generator = LabeledSpectrogramBatchGenerator(corpus=corpus,
                                                        spectrogram_cache_directory=german_spectrogram_cache_directory)
 
-    wav2letter.expectations_vs_predictions(batch_generator.preview_batch())
+    print(wav2letter.expectations_vs_predictions(batch_generator.preview_batch()))
     print("Average loss: {}".format(wav2letter.loss(batch_generator.test_batches())))
 
 
@@ -147,7 +147,7 @@ def predict_german_on_english_model():
 
 # fill_up_german_cache()
 
-# predict_german_on_english_model()
+predict_german_on_english_model()
 
 # summarize_and_save_english_corpus()
 
