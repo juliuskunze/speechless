@@ -76,7 +76,8 @@ class GermanClarinCorpus(LibriSpeechCorpus):
                          id_filter_regex=id_filter_regex,
                          mel_frequency_count=mel_frequency_count,
                          training_test_split=training_test_split,
-                         maximum_example_duration_in_s=35)
+                         maximum_example_duration_in_s=35,
+                         minimum_duration_per_character=5 * 2 * 128 / 16000)
 
     def _extract_positional_label_by_id(self, files: Iterable[Path]) -> Dict[str, PositionalLabel]:
         json_ending = "_annot.json"

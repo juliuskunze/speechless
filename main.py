@@ -24,6 +24,27 @@ english_spectrogram_cache_directory = spectrogram_cache_base_directory / "Englis
 german_spectrogram_cache_directory = spectrogram_cache_base_directory / "German"
 
 
+def train_english():
+    from net_with_corpus import Wav2LetterWithCorpus
+    from net import Wav2Letter
+
+    batch_size = 64
+    mel_frequency_count = 128
+    batches_per_epoch = 100
+    run_name = timestamp() + "-adam-small-learning-rate-complete-training"
+
+    wav2letter = Wav2Letter(mel_frequency_count, allowed_characters=frequent_characters_in_german)
+
+    corpus = english_corpus(english_corpus_directory)
+
+    wav2letter_with_corpus = Wav2LetterWithCorpus(wav2letter, corpus, batch_size=batch_size,
+                                                  spectrogram_cache_directory=english_spectrogram_cache_directory)
+
+    wav2letter_with_corpus.train(tensor_board_log_directory=tensorboard_log_base_directory / run_name,
+                                 net_directory=nets_base_directory / run_name,
+                                 batches_per_epoch=batches_per_epoch)
+
+
 def train_transfer_english_to_german():
     from net_with_corpus import Wav2LetterWithCorpus
 
@@ -147,10 +168,12 @@ def predict_german_on_english_model():
 
 # fill_up_german_cache()
 
-predict_german_on_english_model()
+# predict_german_on_english_model()
 
 # summarize_and_save_english_corpus()
 
 # train()
 
 # LabeledExampleTest().test()
+
+train_english()
