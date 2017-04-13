@@ -67,7 +67,7 @@ class GermanClarinCorpus(LibriSpeechCorpus):
 
         super().__init__(base_directory=base_directory,
                          base_source_url_or_directory=base_source_url_or_directory,
-                         corpus_names=[corpus_name],
+                         corpus_name=corpus_name,
                          tar_gz_extension=tar_gz_extension,
                          root_compressed_directory_name_to_skip=root_compressed_directory_name_to_skip,
                          subdirectory_depth=subdirectory_depth,
@@ -105,7 +105,7 @@ class GermanClarinCorpus(LibriSpeechCorpus):
         extracted.update(json_extracted)
 
         # TODO refactor
-        if len(self.corpus_names) == 1 and ("ALC" in single(self.corpus_names)):
+        if "ALC" in self.corpus_name:
             # exactly half have no label: can be fixed by using 0061006007_h_00.par or _annot.json instead of 0061006007_m_00_annot.json etc.
             correctly_labeled_id_marker = "_h_"
             empty_labeled_id_marker = "_m_"
@@ -322,10 +322,10 @@ def ziptel(base_directory: Path) -> GermanClarinCorpus:
     return GermanClarinCorpus("all.ZIPTEL.3.cmdi.63058.1490624016", base_directory)
 
 
-def sc10(base_directory: Path) -> GermanClarinCorpus:
+def sc10(base_directory: Path, training_test_split=TrainingTestSplit.test_only) -> GermanClarinCorpus:
     return GermanClarinCorpus("all.SC10.4.cmdi.13781.1490631055", base_directory,
                               umlaut_decoder=UmlautDecoder.try_quote_before_umlaut_then_after,
-                              training_test_split=TrainingTestSplit.test_only,
+                              training_test_split=training_test_split,
                               id_filter_regex=sc10_broken_label_filter_regex)
 
 
@@ -394,11 +394,9 @@ class GermanVoxforgeCorpus(GermanClarinCorpus):
         # "...vom preußischen grenzort laugszargen über tauragė ..."
         # replace('ú','u') in 2015-02-04-13-03-47_Kinect-Beam:
         # "... die von renault in setúbal hergestellte produktlinie ..."
-        replaced = super()._correct_german(text).replace("co2", "co zwei").replace('ț', 't').replace('š', 's').replace(
+        return super()._correct_german(text).replace("co2", "co zwei").replace('ț', 't').replace('š', 's').replace(
             'č', 'c').replace('ę', 'e').replace('ō', 'o').replace('á', 'a').replace('í', 'i').replace('ł', 'l').replace(
             'à', 'a').replace('ė', 'e').replace('ú', 'u')
-
-        return replaced
 
     def _extract_label_from_xml(self, xml_file: Path) -> str:
         try:

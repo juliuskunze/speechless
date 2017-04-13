@@ -1,6 +1,7 @@
 from functools import reduce
 from pathlib import Path
 
+import editdistance
 from keras import backend
 from keras.callbacks import Callback, TensorBoard
 from keras.engine import Input, Layer, Model
@@ -9,12 +10,72 @@ from keras.models import Sequential
 from keras.optimizers import Optimizer, Adam
 from lazy import lazy
 from numpy import ndarray, zeros, array, reshape, insert, random, concatenate
-from os import makedirs
 from typing import List, Callable, Iterable, Tuple, Dict, Optional
 
 from grapheme_enconding import CtcGraphemeEncoding, frequent_characters_in_english, AsgGraphemeEncoding
 from labeled_example import LabeledSpectrogram
-from tools import average
+from tools import average, mkdir
+
+
+class ExpectationVsPrediction:
+    def __init__(self, expected: str, predicted: str):
+        self.expected = expected
+        self.predicted = predicted
+        self.expected_letter_count = len(self.expected)
+        self.expected_words = self.expected.split()
+        self.expected_word_count = len(self.expected_words)
+
+    @lazy
+    def letter_error_count(self) -> float:
+        return editdistance.eval(self.expected, self.predicted)
+
+    @lazy
+    def word_error_count(self) -> float:
+        return editdistance.eval(self.expected_words, self.predicted.split())
+
+    @lazy
+    def letter_error_rate(self) -> float:
+        return self.letter_error_count / self.expected_letter_count
+
+    @lazy
+    def word_error_rate(self) -> float:
+        return self.word_error_count / self.expected_word_count
+
+    def __str__(self):
+        return 'Expected:  "{}"\nPredicted: "{}"\nErrors: {} letters (rate {}), {} words (rate {}).'.format(
+            self.expected, self.predicted, self.letter_error_count,
+            self.letter_error_rate, self.word_error_count, self.word_error_rate)
+
+
+class ExpectationsVsPredictions:
+    def __init__(self, results: List[ExpectationVsPrediction]):
+        self.results = results
+
+    @lazy
+    def average_letter_error_count(self):
+        return average([r.letter_error_count for r in self.results])
+
+    @lazy
+    def average_word_error_count(self):
+        return average([r.word_error_count for r in self.results])
+
+    @lazy
+    def average_letter_error_rate(self) -> float:
+        return average([r.letter_error_rate for r in self.results])
+
+    @lazy
+    def average_word_error_rate(self) -> float:
+        return average([r.word_error_rate for r in self.results])
+
+    def __str__(self):
+        return "\n\n".join(str(r) for r in self.results) + "\n\n" + self.summary_line()
+
+    def summary_line(self):
+        return "Errors on average: {} letters (rate {}), {} words (rate {}).".format(
+            self.average_letter_error_count,
+            self.average_letter_error_rate,
+            self.average_word_error_count,
+            self.average_word_error_rate)
 
 
 class Wav2Letter:
@@ -176,6 +237,9 @@ class Wav2Letter:
 
         layers = input_convolutions() + inner_convolutions() + output_convolutions()
 
+        if self.frozen_layer_count > 0:
+            print("All but {} layers frozen.".format(len(layers) - self.frozen_layer_count))
+
         for layer in layers[:self.frozen_layer_count]:
             layer.trainable = False
 
@@ -254,7 +318,7 @@ class Wav2Letter:
         def print_and_get_batch_loss(x, y):
             loss = self.loss_net.evaluate(x, y, batch_size=y.shape[0])
 
-            print(loss)
+            print("Batch loss: " + str(loss))
 
             return loss
 
@@ -269,24 +333,25 @@ class Wav2Letter:
                 labeled_spectrogram_batch=labeled_spectrogram_batch)
             yield (training_input_dictionary, dummy_labels_for_dummy_loss_function)
 
-    def print_expectations_vs_predictions(self, labeled_spectrogram_batch: List[LabeledSpectrogram]) -> None:
-        print("\n\n".join('Expected:  "{}"\nPredicted: "{}"'.format(expected, predicted) for expected, predicted in zip(
-            [s.label for s in labeled_spectrogram_batch],
-            self.predict(spectrograms=[s.z_normalized_transposed_spectrogram() for s in labeled_spectrogram_batch]))))
+    def expectations_vs_predictions(
+            self, labeled_spectrogram_batch: List[LabeledSpectrogram]) -> ExpectationsVsPredictions:
+        return ExpectationsVsPredictions([ExpectationVsPrediction(expected, predicted) for expected, predicted in zip(
+            (s.label for s in labeled_spectrogram_batch),
+            self.predict([s.z_normalized_transposed_spectrogram() for s in labeled_spectrogram_batch]))])
 
     def train(self,
               labeled_spectrogram_batches: Iterable[List[LabeledSpectrogram]],
               preview_labeled_spectrogram_batch: List[LabeledSpectrogram],
               tensor_board_log_directory: Path,
               net_directory: Path,
-              samples_per_epoch: int):
-        self.print_expectations_vs_predictions(preview_labeled_spectrogram_batch)
+              batches_per_epoch: int):
+        self.expectations_vs_predictions(preview_labeled_spectrogram_batch)
 
-        self.loss_net.fit_generator(self._generator(labeled_spectrogram_batches), nb_epoch=100000000,
-                                    samples_per_epoch=samples_per_epoch,
+        self.loss_net.fit_generator(self._generator(labeled_spectrogram_batches), epochs=100000000,
+                                    steps_per_epoch=batches_per_epoch,
                                     callbacks=self.create_callbacks(
-                                        callback=lambda: self.print_expectations_vs_predictions(
-                                            preview_labeled_spectrogram_batch),
+                                        callback=lambda: print(self.expectations_vs_predictions(
+                                            preview_labeled_spectrogram_batch)),
                                         tensor_board_log_directory=tensor_board_log_directory,
                                         net_directory=net_directory),
                                     initial_epoch=self.load_epoch if (self.load_epoch is not None) else 0)
@@ -303,8 +368,7 @@ class Wav2Letter:
                     callback()
 
                 if epoch % save_step == 0 and epoch > 0:
-                    # not Path.mkdir() for compatibility with Python 3.4
-                    makedirs(str(net_directory), exist_ok=True)
+                    mkdir(net_directory)
 
                     self.predictive_net.save_weights(str(net_directory / self.model_file_name(epoch)))
 

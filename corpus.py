@@ -5,12 +5,10 @@ from enum import Enum
 from multiprocessing.pool import Pool
 from pathlib import Path
 
-from os import makedirs
 from typing import List, Iterable, Callable, Tuple, Any
 
-import tools
 from labeled_example import LabeledExample, LabeledSpectrogram, CachedLabeledSpectrogram
-from tools import group, paginate
+from tools import group, paginate, mkdir, duplicates
 
 
 class ParsingException(Exception):
@@ -32,15 +30,15 @@ class Corpus:
         self.test_examples = test_examples
         self.examples = training_examples + test_examples
 
-        duplicate_training_ids = tools.duplicates(e.id for e in training_examples)
+        duplicate_training_ids = duplicates(e.id for e in training_examples)
         if len(duplicate_training_ids) > 0:
             raise ValueError("Duplicate ids in training examples: {}".format(duplicate_training_ids))
 
-        duplicate_test_ids = tools.duplicates(e.id for e in test_examples)
+        duplicate_test_ids = duplicates(e.id for e in test_examples)
         if len(duplicate_test_ids) > 0:
             raise ValueError("Duplicate ids in test examples: {}".format(duplicate_test_ids))
 
-        overlapping_ids = tools.duplicates(e.id for e in self.examples)
+        overlapping_ids = duplicates(e.id for e in self.examples)
 
         if len(overlapping_ids) > 0:
             raise ValueError("Overlapping training and test set: {}".format(overlapping_ids))
@@ -162,8 +160,7 @@ def _cache_spectrogram(labeled_spectrogram: CachedLabeledSpectrogram) -> None:
 
 class LabeledSpectrogramBatchGenerator:
     def __init__(self, corpus: Corpus, spectrogram_cache_directory: Path, batch_size: int = 64):
-        # not Path.mkdir() for compatibility with Python 3.4
-        makedirs(str(spectrogram_cache_directory), exist_ok=True)
+        mkdir(spectrogram_cache_directory)
 
         self.batch_size = batch_size
         self.spectrogram_cache_directory = spectrogram_cache_directory

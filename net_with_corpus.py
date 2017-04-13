@@ -18,7 +18,7 @@ class Wav2LetterWithCorpus:
                               tensor_board_log_directory=tensor_board_log_directory,
                               net_directory=net_directory,
                               preview_labeled_spectrogram_batch=self.batch_generator.preview_batch(),
-                              samples_per_epoch=self.batch_generator.batch_size * batches_per_epoch)
+                              batches_per_epoch=batches_per_epoch)
 
     def test(self):
         print(self.wav2letter.loss(self.batch_generator.test_batches()))

@@ -11,17 +11,17 @@ from lazy import lazy
 from typing import Iterable, Optional, List, Callable, Tuple, Dict
 from urllib import request
 
-from corpus import Corpus, TrainingTestSplit
+from corpus import Corpus, TrainingTestSplit, CombinedCorpus
 from grapheme_enconding import frequent_characters_in_english
 from labeled_example import LabeledExample, PositionalLabel
 from tools import mkdir, name_without_extension, count_summary, distinct, extension
 
 
 class LibriSpeechCorpus(Corpus):
-    def __init__(self, base_directory: Path,
+    def __init__(self,
+                 base_directory: Path,
+                 corpus_name: str,
                  base_source_url_or_directory: str = "http://www.openslr.org/resources/12/",
-                 corpus_names: Iterable[str] = ("dev-clean", "dev-other", "test-clean", "test-other",
-                                                "train-clean-100", "train-clean-360", "train-other-500"),
                  tar_gz_extension: str = ".tar.gz",
                  mel_frequency_count: int = 128,
                  root_compressed_directory_name_to_skip: Optional[str] = "LibriSpeech/",
@@ -31,7 +31,7 @@ class LibriSpeechCorpus(Corpus):
                  id_filter_regex=re.compile('[\s\S]*'),
                  training_test_split: Callable[[List[LabeledExample]], Tuple[
                      List[LabeledExample], List[LabeledExample]]] = TrainingTestSplit.randomly(),
-                 maximum_example_duration_in_s: int = 1000):
+                 maximum_example_duration_in_s: Optional[int] = None):
         self.maximum_example_duration_in_s = maximum_example_duration_in_s
         self.training_test_split = training_test_split
         self.id_filter_regex = id_filter_regex
@@ -43,13 +43,12 @@ class LibriSpeechCorpus(Corpus):
         self.base_url_or_directory = base_source_url_or_directory
         self.tar_gz_extension = tar_gz_extension
         self.mel_frequency_count = mel_frequency_count
-        self.corpus_names = corpus_names
+        self.corpus_name = corpus_name
         mkdir(base_directory)
 
-        self.corpus_directories = [self._download_and_unpack_if_not_yet_done(corpus_name=corpus_name) for corpus_name in
-                                   corpus_names]
+        self.corpus_directory = self._download_and_unpack_if_not_yet_done(corpus_name=corpus_name)
 
-        directories = self.corpus_directories
+        directories = [self.corpus_directory]
         for i in range(self.subdirectory_depth):
             directories = [subdirectory
                            for directory in directories
@@ -95,12 +94,15 @@ class LibriSpeechCorpus(Corpus):
         self.examples_with_too_long = [e for e in self.examples_with_empty_and_too_long if e.label]
 
         examples = [e for e in self.examples_with_too_long
-                    if e.duration_in_s <= maximum_example_duration_in_s]
+                    if not self.is_too_long(e)]
 
         training_examples, test_examples = self.training_test_split(sorted(examples,
                                                                            key=lambda x: x.id))
 
         super().__init__(training_examples=training_examples, test_examples=test_examples)
+
+    def is_too_long(self, example: LabeledExample) -> bool:
+        return self.maximum_example_duration_in_s is not None and example.duration_in_s > example.mel_frequency_count
 
     def _remove_tags_to_ignore(self, text: str) -> str:
         return reduce(lambda text, tag: text.replace(tag, ""), self.tags_to_ignore, text)
@@ -161,7 +163,7 @@ class LibriSpeechCorpus(Corpus):
         return all(c in self.allowed_characters for c in label)
 
     def csv_rows(self):
-        return [[" ".join(self.corpus_names),
+        return [[self.corpus_name,
                  self.file_type_summary,
                  len(self.unfiltered_audio_files), self.filtered_out_count, self.id_filter_regex,
                  len(self.audio_ids_without_label), str(self.audio_ids_without_label[:10]),
@@ -180,7 +182,7 @@ class LibriSpeechCorpus(Corpus):
                  len(self.too_long_examples)]]
 
     def summary(self) -> str:
-        description = "File types: {}\n{}{}{}{}{}{} extracted examples ({}h total), of them {} invalid, {} empty (will be excluded), {} too long ({}h, will be excluded), {} duplicate, {} without positions.\n{} training examples ({}h total), {} test examples ({}h total).".format(
+        description = "File types: {}\n{}{}{}{}{}{} extracted examples, of them {} invalid, {} empty (will be excluded), {} too long, {} duplicate, {} without positions.\n{} training examples, {} test examples.".format(
             self.file_type_summary,
             "Out of {} audio files, {} were excluded by regex {}\n".format(
                 len(self.unfiltered_audio_files), self.filtered_out_count,
@@ -196,20 +198,19 @@ class LibriSpeechCorpus(Corpus):
 
             "Removed label tags: {}\n".format(self.tag_summary) if self.tag_summary != "" else "",
             self.invalid_examples_summary,
-            len(self.examples), self.total_duration_in_h,
+            len(self.examples),  # self.total_duration_in_h,
             len(self.invalid_examples_texts),
             len(self.empty_examples),
-            len(self.too_long_examples), self.total_duration_of_too_long_examples_in_h,
+            len(self.too_long_examples),  # self.total_duration_of_too_long_examples_in_h,
             self.duplicate_label_count,
             len(self.examples_without_positional_labels),
             len(self.training_examples),
-            self.total_training_duration_in_h,
+            # self.total_training_duration_in_h,
             len(self.test_examples),
-            self.total_test_duration_in_h)
+            # self.total_test_duration_in_h
+        )
 
-        summary = " ".join(self.corpus_names) + "\n" + "\n".join("\t" + line for line in description.splitlines())
-        print(summary)
-        return summary
+        return self.corpus_name + "\n" + "\n".join("\t" + line for line in description.splitlines())
 
     @lazy
     def invalid_examples_summary(self):
@@ -241,9 +242,7 @@ class LibriSpeechCorpus(Corpus):
 
     @lazy
     def file_extensions(self):
-        return [extension(file)
-                for directory in self.corpus_directories
-                for file in directory.glob('**/*.*') if file.is_file()]
+        return [extension(file) for file in self.corpus_directory.glob('**/*.*') if file.is_file()]
 
     @lazy
     def empty_examples(self):
@@ -251,7 +250,7 @@ class LibriSpeechCorpus(Corpus):
 
     @lazy
     def too_long_examples(self):
-        return [e for e in self.examples_with_too_long if e.duration_in_s > self.maximum_example_duration_in_s]
+        return [e for e in self.examples_with_too_long if self.is_too_long(e)]
 
     @lazy
     def duplicate_label_count(self):
@@ -287,3 +286,22 @@ class LibriSpeechCorpus(Corpus):
     @lazy
     def examples_without_positional_labels(self):
         return [e for e in self.examples if not e.positional_label.has_positions()]
+
+
+def english_corpus(base_directory: Path) -> CombinedCorpus:
+    return CombinedCorpus([
+        LibriSpeechCorpus(base_directory=base_directory, corpus_name="dev-clean",
+                          training_test_split=TrainingTestSplit.training_only),
+        LibriSpeechCorpus(base_directory=base_directory, corpus_name="dev-other",
+                          training_test_split=TrainingTestSplit.training_only),
+        LibriSpeechCorpus(base_directory=base_directory, corpus_name="train-clean-100",
+                          training_test_split=TrainingTestSplit.training_only),
+        LibriSpeechCorpus(base_directory=base_directory, corpus_name="train-clean-360",
+                          training_test_split=TrainingTestSplit.training_only),
+        LibriSpeechCorpus(base_directory=base_directory, corpus_name="train-other-500",
+                          training_test_split=TrainingTestSplit.training_only),
+        LibriSpeechCorpus(base_directory=base_directory, corpus_name="test-clean",
+                          training_test_split=TrainingTestSplit.test_only),
+        LibriSpeechCorpus(base_directory=base_directory, corpus_name="test-other",
+                          training_test_split=TrainingTestSplit.test_only)
+    ])

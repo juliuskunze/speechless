@@ -1,13 +1,12 @@
-from pathlib import Path
-
 import librosa
 import numpy as np
 from unittest import TestCase
 
 from english_corpus import LibriSpeechCorpus
 from labeled_example import SpectrogramType, SpectrogramFrequencyScale
+from tools import home_directory
 
-corpus = LibriSpeechCorpus(Path.home() / "speechless-data" / "corpus" / "English", corpus_names=["dev-clean"])
+corpus = LibriSpeechCorpus(home_directory() / "speechless-data" / "corpus" / "English", corpus_name="dev-clean")
 
 
 class LabeledExampleTest(TestCase):
@@ -18,5 +17,5 @@ class LabeledExampleTest(TestCase):
             sr=example.sample_rate)
 
         self.assertTrue(np.array_equal(mel_power_spectrogram,
-                                       example.z_normalized_transposed_spectrogram(type=SpectrogramType.power,
-                                                                                   frequency_scale=SpectrogramFrequencyScale.mel)))
+                                       example.spectrogram(type=SpectrogramType.power,
+                                                           frequency_scale=SpectrogramFrequencyScale.mel)))
