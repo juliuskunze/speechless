@@ -75,9 +75,8 @@ class GermanClarinCorpus(LibriSpeechCorpus):
                          tags_to_ignore=tags_to_ignore,
                          id_filter_regex=id_filter_regex,
                          mel_frequency_count=mel_frequency_count,
-                         training_test_split=training_test_split)
-
-        print("\t{} without positional info.".format(len(self.examples_without_positional_labels)))
+                         training_test_split=training_test_split,
+                         maximum_example_duration_in_s=35)
 
     def _extract_positional_label_by_id(self, files: Iterable[Path]) -> Dict[str, PositionalLabel]:
         json_ending = "_annot.json"
@@ -309,25 +308,25 @@ def clarin_corpora_sorted_by_size(base_directory: Path) -> List[GermanClarinCorp
     ]
 
 
-def pd2(base_directory):
+def sc1(base_directory: Path) -> GermanClarinCorpus:
+    return GermanClarinCorpus("all.SC1.3.cmdi.15010.1490631864", base_directory,
+                              umlaut_decoder=UmlautDecoder.quote_after_umlaut,
+                              training_test_split=TrainingTestSplit.test_only)
+
+
+def pd2(base_directory: Path) -> GermanClarinCorpus:
     return GermanClarinCorpus("all.PD2.4.cmdi.16693.1490681127", base_directory)
 
 
-def ziptel(base_directory):
+def ziptel(base_directory: Path) -> GermanClarinCorpus:
     return GermanClarinCorpus("all.ZIPTEL.3.cmdi.63058.1490624016", base_directory)
 
 
-def sc10(base_directory):
+def sc10(base_directory: Path) -> GermanClarinCorpus:
     return GermanClarinCorpus("all.SC10.4.cmdi.13781.1490631055", base_directory,
                               umlaut_decoder=UmlautDecoder.try_quote_before_umlaut_then_after,
                               training_test_split=TrainingTestSplit.test_only,
                               id_filter_regex=sc10_broken_label_filter_regex)
-
-
-def sc1(base_directory):
-    return GermanClarinCorpus("all.SC1.3.cmdi.15010.1490631864", base_directory,
-                              umlaut_decoder=UmlautDecoder.quote_after_umlaut,
-                              training_test_split=TrainingTestSplit.test_only)
 
 
 class GermanVoxforgeCorpus(GermanClarinCorpus):
@@ -339,10 +338,17 @@ class GermanVoxforgeCorpus(GermanClarinCorpus):
             tar_gz_extension=".tar.gz",
             subdirectory_depth=1,
             umlaut_decoder=UmlautDecoder.none,
-            # exclude files starting with dot:
-            id_filter_regex=re.compile('[^.][\s\S]*', ),
             training_test_split=TrainingTestSplit.by_directory(),
-            tags_to_ignore=[])
+            tags_to_ignore=[],
+            # exclude those 7 audio files because the first 2 are corrupt, the last 5 are empty:
+            id_filter_regex=re.compile("(?!^2014-03-24-13-39-24_Kinect-RAW)"
+                                       "(?!^2014-03-27-11-50-33_Kinect-RAW)"
+                                       "(?!^2014-03-18-15-34-19_Realtek)"
+                                       "(?!^2014-06-17-13-46-27_Kinect-RAW)"
+                                       "(?!^2014-06-17-13-46-27_Realtek)"
+                                       "(?!^2014-06-17-13-46-27_Samson)"
+                                       "(?!^2014-06-17-13-46-27_Yamaha)"
+                                       "(^.*$)"))
 
     def _extract_positional_label_by_id(self, files: Iterable[Path]) -> Dict[str, PositionalLabel]:
         xml_ending = ".xml"

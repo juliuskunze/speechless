@@ -1,6 +1,6 @@
 from unittest import TestCase
 
-from corpus import paginate
+from tools import paginate
 
 
 class ToolsTest(TestCase):

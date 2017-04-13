@@ -1,9 +1,11 @@
 import math
+from abc import ABCMeta, abstractmethod
 from enum import Enum
 from pathlib import Path
 
 import audioread
 import librosa
+import numpy
 import os
 from lazy import lazy
 from numpy import ndarray, mean, std, vectorize, dot
@@ -41,11 +43,21 @@ class PositionalLabel:
         return PositionalLabel([(correction(word), range) for word, range in self.words_with_ranges])
 
     def has_positions(self) -> bool:
-        range = self.words_with_ranges[0][1]
-        return range is not None
+        return len(self.words_with_ranges) == 0 or self.words_with_ranges[0][1] is not None
 
 
-class LabeledExample:
+class LabeledSpectrogram:
+    __metaclass__ = ABCMeta
+
+    def __init__(self, id: str, label: str):
+        self.label = label
+        self.id = id
+
+    @abstractmethod
+    def z_normalized_transposed_spectrogram(self) -> ndarray: raise NotImplementedError
+
+
+class LabeledExample(LabeledSpectrogram):
     def __init__(self,
                  audio_file: Path,
                  id: Optional[str] = None,
@@ -62,11 +74,11 @@ class LabeledExample:
         if positional_label is None:
             positional_label = PositionalLabel.without_positions(label)
 
+        super().__init__(id=id, label=label)
+
         # The default values for hop_length and fourier_window_length are powers of 2 near the values specified in the wave2letter paper.
         self.audio_file = audio_file
         self.sample_rate = sample_rate_to_convert_to
-        self.id = id
-        self.label = label
         self.fourier_window_length = fourier_window_length
         self.hop_length = hop_length
         self.mel_frequency_count = mel_frequency_count
@@ -112,8 +124,13 @@ class LabeledExample:
     def highest_detectable_frequency(self) -> float:
         return self.sample_rate / 2
 
+    @lazy
     def duration_in_s(self) -> float:
-        return self.raw_audio.shape[0] / self.sample_rate
+        try:
+            return librosa.get_duration(filename=str(self.audio_file))
+        except Exception as e:
+            print("Failed to get duration of {}: {}".format(self.audio_file, e))
+            return 0
 
     def spectrogram(self, type: SpectrogramType = SpectrogramType.power_level,
                     frequency_scale: SpectrogramFrequencyScale = SpectrogramFrequencyScale.linear) -> ndarray:
@@ -163,3 +180,28 @@ class LabeledExample:
 
     def __str__(self) -> str:
         return self.id + (": {}".format(self.label) if self.label else "")
+
+
+class CachedLabeledSpectrogram(LabeledSpectrogram):
+    def __init__(self, original: LabeledSpectrogram, spectrogram_cache_directory: Path):
+        super().__init__(id=original.id, label=original.label)
+        self.original = original
+        self.spectrogram_cache_file = spectrogram_cache_directory / "{}.npy".format(original.id)
+
+    def z_normalized_transposed_spectrogram(self) -> ndarray:
+        if not self.exists():
+            return self._calculate_and_save_spectrogram()
+
+        try:
+            return numpy.load(str(self.spectrogram_cache_file))
+        except ValueError:
+            print("Recalculating cached file {} because loading failed.".format(self.spectrogram_cache_file))
+            return self._calculate_and_save_spectrogram()
+
+    def _calculate_and_save_spectrogram(self):
+        spectrogram = self.original.z_normalized_transposed_spectrogram()
+        numpy.save(str(self.spectrogram_cache_file), spectrogram)
+        return spectrogram
+
+    def exists(self):
+        return self.spectrogram_cache_file.exists()

@@ -1,21 +1,21 @@
 from functools import reduce
-from itertools import cycle
 from pathlib import Path
 
 import numpy
 from keras import backend
 from keras.callbacks import Callback, TensorBoard
 from keras.engine import Input, Layer, Model
-from keras.layers import Convolution1D, Lambda, Dropout
+from keras.layers import Lambda, Dropout, Conv1D
 from keras.models import Sequential
 from keras.optimizers import Optimizer, Adam
 from lazy import lazy
-from numpy import ndarray, zeros, array, mean, reshape
+from numpy import ndarray, zeros, array, reshape
 from os import makedirs
-from typing import List, Callable, Iterable, Tuple, Dict
+from typing import List, Callable, Iterable, Tuple, Dict, Optional
 
-from corpus import LabeledSpectrogram
 from grapheme_enconding import CtcGraphemeEncoding, frequent_characters_in_english, AsgGraphemeEncoding
+from labeled_example import LabeledSpectrogram
+from tools import average
 
 
 class Wav2Letter:
@@ -34,23 +34,41 @@ class Wav2Letter:
                  activation: str = "relu",
                  output_activation: str = "softmax",
                  optimizer: Optimizer = Adam(1e-4),
-                 dropout: float = None,
-                 load_model_from_directory: Path = None,
-                 load_epoch: int = None,
+                 dropout: Optional[float] = None,
+                 load_model_from_directory: Optional[Path] = None,
+                 load_epoch: Optional[int] = None,
+                 allowed_characters_for_loaded_model: Optional[List[chr]] = None,
                  frozen_layer_count: int = 0,
                  use_asg: bool = False,
-                 asg_transition_probabilities: ndarray = None,
-                 asg_initial_probabilities: ndarray = None):
+                 asg_transition_probabilities: Optional[ndarray] = None,
+                 asg_initial_probabilities: Optional[ndarray] = None):
 
-        self.grapheme_encoding = AsgGraphemeEncoding(allowed_characters=allowed_characters) \
-            if use_asg else CtcGraphemeEncoding(allowed_characters=allowed_characters)
+        def grapheme_encoding(allowed_characters):
+            return AsgGraphemeEncoding(allowed_characters=allowed_characters) \
+                if use_asg else CtcGraphemeEncoding(allowed_characters=allowed_characters)
 
-        grapheme_set_size = self.grapheme_encoding.grapheme_set_size
+        if allowed_characters_for_loaded_model is not None:
+            loaded_allowed_character_count = len(allowed_characters_for_loaded_model)
+            self.extra_allowed_character_count = len(allowed_characters) - loaded_allowed_character_count
 
-        self.asg_transition_probabilities = self._default_asg_transition_probabilities(grapheme_set_size) \
+            if self.extra_allowed_character_count < 0 or \
+                            allowed_characters[:loaded_allowed_character_count] != allowed_characters_for_loaded_model:
+                raise ValueError(
+                    "Allowed characters must begin with the allowed characters for loaded model in the same order.")
+
+        self.allowed_characters_for_loaded_model = allowed_characters_for_loaded_model
+
+        self.grapheme_encoding = grapheme_encoding(allowed_characters)
+        self.predictive_net_grapheme_set_size = grapheme_encoding(
+            allowed_characters if allowed_characters_for_loaded_model is None else allowed_characters_for_loaded_model). \
+            grapheme_set_size
+
+        self.asg_transition_probabilities = self._default_asg_transition_probabilities(
+            self.grapheme_encoding.grapheme_set_size) \
             if asg_transition_probabilities is None else asg_transition_probabilities
 
-        self.asg_initial_probabilities = self._default_asg_initial_probabilities(grapheme_set_size) \
+        self.asg_initial_probabilities = self._default_asg_initial_probabilities(
+            self.grapheme_encoding.grapheme_set_size) \
             if asg_initial_probabilities is None else asg_initial_probabilities
 
         self.use_asg = use_asg
@@ -93,38 +111,39 @@ class Wav2Letter:
          As described here: https://arxiv.org/pdf/1609.03193v2.pdf
         """
 
-        def convolution(name: str, filter_count: int, filter_length: int, striding: int = 1,
+        def convolution(name: str, filter_count: int, filter_length: int, strides: int = 1,
                         activation: str = self.activation,
                         input_dim: int = None,
                         never_dropout: bool = False) -> List[Layer]:
             return ([] if self.dropout is None or never_dropout else [
                 Dropout(self.dropout, input_shape=(None, input_dim),
                         name="dropout_before_{}".format(name))]) + [
-                       Convolution1D(nb_filter=filter_count, filter_length=filter_length, subsample_length=striding,
-                                     activation=activation, name=name, input_dim=input_dim, border_mode="same")]
+                       Conv1D(filters=filter_count, kernel_size=filter_length, strides=strides,
+                              activation=activation, name=name, input_shape=(None, input_dim), padding="same")]
 
         main_filter_count = 250
 
-        def input_convolutions() -> List[Convolution1D]:
+        def input_convolutions() -> List[Conv1D]:
             raw_wave_convolution_if_needed = convolution(
-                "wave_conv", filter_count=main_filter_count, filter_length=250, striding=160,
+                "wave_conv", filter_count=main_filter_count, filter_length=250, strides=160,
                 input_dim=self.input_size_per_time_step) if self.use_raw_wave_input else []
 
             return raw_wave_convolution_if_needed + convolution(
-                "striding_conv", filter_count=main_filter_count, filter_length=48, striding=2,
+                "striding_conv", filter_count=main_filter_count, filter_length=48, strides=2,
                 input_dim=None if self.use_raw_wave_input else self.input_size_per_time_step)
 
-        def inner_convolutions() -> List[Convolution1D]:
+        def inner_convolutions() -> List[Conv1D]:
             return [layer for i in
                     range(1, 8) for layer in
                     convolution("inner_conv_{}".format(i), filter_count=main_filter_count, filter_length=7)]
 
-        def output_convolutions() -> List[Convolution1D]:
+        def output_convolutions() -> List[Conv1D]:
             out_filter_count = 2000
             return [layer for conv in [
                 convolution("big_conv_1", filter_count=out_filter_count, filter_length=32, never_dropout=True),
                 convolution("big_conv_2", filter_count=out_filter_count, filter_length=1, never_dropout=True),
-                convolution("output_conv", filter_count=self.grapheme_encoding.grapheme_set_size, filter_length=1,
+                convolution("output_conv", filter_count=self.predictive_net_grapheme_set_size,
+                            filter_length=1,
                             activation=self.output_activation, never_dropout=True)
             ] for layer in conv]
 
@@ -133,14 +152,19 @@ class Wav2Letter:
         for layer in layers[:self.frozen_layer_count]:
             layer.trainable = False
 
+        if self.allowed_characters_for_loaded_model is not None:
+            import tensorflow
+            return Sequential(layers + [Lambda(lambda predictions: tensorflow.pad(
+                predictions, ((0, 0), (0, 0), (0, self.extra_allowed_character_count))))])
+
         return Sequential(layers)
 
     @lazy
     def input_to_prediction_length_ratio(self):
         """Returns which factor shorter the output is compared to the input caused by striding."""
         return reduce(lambda x, y: x * y,
-                      [layer.subsample_length for layer in self.predictive_net.layers if
-                       isinstance(layer, Convolution1D)], 1)
+                      [layer.strides[0] for layer in self.predictive_net.layers if
+                       isinstance(layer, Conv1D)], 1)
 
     def prediction_batch(self, input_batch: ndarray) -> ndarray:
         """Predicts a grapheme probability batch given a spectrogram batch, employing the learned predictive network."""
@@ -175,7 +199,7 @@ class Wav2Letter:
         loss = loss_layer(
             [self.predictive_net(input_batch), label_batch, prediction_lengths, label_lengths])
 
-        loss_net = Model(input=[input_batch, label_batch, prediction_lengths, label_lengths], output=[loss])
+        loss_net = Model(inputs=[input_batch, label_batch, prediction_lengths, label_lengths], outputs=[loss])
         # Since loss is already calculated in the last layer of the net, we just pass through the results here.
         # The loss dummy labels have to be given to satify the Keras API.
         loss_net.compile(loss=lambda dummy_labels, ctc_loss: ctc_loss, optimizer=self.optimizer)
@@ -203,14 +227,18 @@ class Wav2Letter:
         return self.predict([spectrogram])[0]
 
     def loss(self, labeled_spectrogram_batches: Iterable[List[LabeledSpectrogram]]):
-        batches = list(labeled_spectrogram_batches)
-        sample_count = len([spectrogram for batch in batches for spectrogram in batch])
-        self.loss_net.evaluate_generator(self._generator(cycle(batches), print_batch_loss=True),
-                                         val_samples=sample_count)
+        inputs = self._generator(labeled_spectrogram_batches)
 
-    def _generator(self, labeled_spectrogram_batches: Iterable[List[LabeledSpectrogram]],
-                   print_batch_loss: bool = False):
-        losses = []
+        def print_and_get_batch_loss(x, y):
+            loss = self.loss_net.evaluate(x, y, batch_size=y.shape[0])
+
+            print(loss)
+
+            return loss
+
+        return average([print_and_get_batch_loss(x, y) for x, y in inputs])
+
+    def _generator(self, labeled_spectrogram_batches: Iterable[List[LabeledSpectrogram]]):
         for index, labeled_spectrogram_batch in enumerate(labeled_spectrogram_batches):
             batch_size = len(labeled_spectrogram_batch)
             dummy_labels_for_dummy_loss_function = zeros((batch_size,))
@@ -218,30 +246,24 @@ class Wav2Letter:
                 labeled_spectrogram_batch=labeled_spectrogram_batch)
             yield (training_input_dictionary, dummy_labels_for_dummy_loss_function)
 
-            if print_batch_loss:
-                loss = self.loss_net.evaluate(training_input_dictionary, dummy_labels_for_dummy_loss_function,
-                                              batch_size=batch_size)
-                losses.append(loss)
-                print("Batch {} has loss {}, so far {} on average".format(index, loss, mean(losses)))
+    def print_expectations_vs_predictions(self, labeled_spectrogram_batch: List[LabeledSpectrogram]) -> None:
+        print("\n\n".join('Expected:  "{}"\nPredicted: "{}"'.format(expected, predicted) for expected, predicted in zip(
+            [s.label for s in labeled_spectrogram_batch],
+            self.predict(spectrograms=[s.z_normalized_transposed_spectrogram() for s in labeled_spectrogram_batch]))))
 
     def train(self,
               labeled_spectrogram_batches: Iterable[List[LabeledSpectrogram]],
-              test_labeled_spectrogram_batch: Iterable[LabeledSpectrogram],
+              preview_labeled_spectrogram_batch: List[LabeledSpectrogram],
               tensor_board_log_directory: Path,
               net_directory: Path,
               samples_per_epoch: int):
-        def print_expectations_vs_prediction():
-            print("\n\n".join(
-                'Expected:  "{}"\nPredicted: "{}"'.format(expected, predicted) for expected, predicted
-                in zip([x.label() for x in test_labeled_spectrogram_batch],
-                       self.predict(spectrograms=[x.spectrogram() for x in test_labeled_spectrogram_batch]))))
-
-        print_expectations_vs_prediction()
+        self.print_expectations_vs_predictions(preview_labeled_spectrogram_batch)
 
         self.loss_net.fit_generator(self._generator(labeled_spectrogram_batches), nb_epoch=100000000,
                                     samples_per_epoch=samples_per_epoch,
                                     callbacks=self.create_callbacks(
-                                        callback=print_expectations_vs_prediction,
+                                        callback=lambda: self.print_expectations_vs_predictions(
+                                            preview_labeled_spectrogram_batch),
                                         tensor_board_log_directory=tensor_board_log_directory,
                                         net_directory=net_directory),
                                     initial_epoch=self.load_epoch if (self.load_epoch is not None) else 0)
@@ -279,8 +301,8 @@ class Wav2Letter:
         return input_batch, prediction_lengths
 
     def _training_input_dictionary(self, labeled_spectrogram_batch: List[LabeledSpectrogram]) -> Dict[str, ndarray]:
-        spectrograms = [x.spectrogram() for x in labeled_spectrogram_batch]
-        labels = [x.label() for x in labeled_spectrogram_batch]
+        spectrograms = [x.z_normalized_transposed_spectrogram() for x in labeled_spectrogram_batch]
+        labels = [x.label for x in labeled_spectrogram_batch]
         input_batch, prediction_lengths = self._input_batch_and_prediction_lengths(spectrograms)
 
         # Sets learning phase to training to enable dropout (see backend.learning_phase documentation for more info):

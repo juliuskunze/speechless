@@ -1,11 +1,10 @@
-from pathlib import Path
+from typing import List
 
-from keras.optimizers import Adam
-
+from corpus import LabeledSpectrogramBatchGenerator, Corpus
 from english_corpus import LibriSpeechCorpus
-from german_corpus import german_corpus
-from labeled_example import LabeledExample
-from net_with_corpus import Wav2LetterWithCorpus
+from german_corpus import german_corpus, sc10
+from grapheme_enconding import frequent_characters_in_english, frequent_characters_in_german
+from labeled_example import LabeledExample, LabeledSpectrogram
 from recording import Recorder
 from tools import mkdir, home_directory, timestamp
 
@@ -17,14 +16,16 @@ recording_directory = base_directory / "recordings"
 corpus_base_direcory = base_directory / "corpus"
 english_corpus_directory = corpus_base_direcory / "English"
 german_corpus_directory = corpus_base_direcory / "German"
-spectrogram_cache_base_directory = base_directory / "spectrogram-cache"
 
+spectrogram_cache_base_directory = base_directory / "spectrogram-cache"
 english_spectrogram_cache_directory = spectrogram_cache_base_directory / "English"
 german_spectrogram_cache_directory = spectrogram_cache_base_directory / "German"
 
 
 def train():
     from net import Wav2Letter
+    from keras.optimizers import Adam
+    from net_with_corpus import Wav2LetterWithCorpus
 
     batch_size = 64
     mel_frequency_count = 128
@@ -41,19 +42,22 @@ def train():
         mel_frequency_count=mel_frequency_count)
 
     wav2letter_with_corpus = Wav2LetterWithCorpus(wav2letter, corpus, batch_size=batch_size,
-                                                  spectrogram_cache_directory=german_spectrogram_cache_directory)
+                                                  spectrogram_cache_directory=english_spectrogram_cache_directory)
 
     wav2letter_with_corpus.train(tensor_board_log_directory=tensorboard_log_base_directory / run_name,
                                  net_directory=nets_base_directory / run_name)
 
 
-def load_best_wav2letter_model(mel_frequency_count: int = 128):
+def load_best_wav2letter_model(mel_frequency_count: int = 128,
+                               allowed_characters: List[chr] = frequent_characters_in_english):
     from net import Wav2Letter
 
     return Wav2Letter(
+        allowed_characters=allowed_characters,
         input_size_per_time_step=mel_frequency_count,
-        load_model_from_directory=Path(nets_base_directory / "20170314-134351-adam-small-learning-rate-complete-95"),
-        load_epoch=1689)
+        load_model_from_directory=nets_base_directory / "20170314-134351-adam-small-learning-rate-complete-95",
+        load_epoch=1689,
+        allowed_characters_for_loaded_model=frequent_characters_in_english)
 
 
 def record_plot_and_save() -> LabeledExample:
@@ -71,11 +75,12 @@ def record_plot_and_save() -> LabeledExample:
 def predict_recording() -> None:
     wav2letter = load_best_wav2letter_model()
 
-    def predict(sample: LabeledExample) -> str:
-        return wav2letter.predict_single(sample.z_normalized_transposed_spectrogram())
+    def predict(labeled_spectrogram: LabeledSpectrogram) -> str:
+        return wav2letter.predict_single(labeled_spectrogram.z_normalized_transposed_spectrogram())
 
-    def print_prediction(labeled_example: LabeledExample, description: str = None) -> None:
-        print((description if description else labeled_example.id) + ": " + '"{}"'.format(predict(labeled_example)))
+    def print_prediction(labeled_spectrogram: LabeledSpectrogram, description: str = None) -> None:
+        print((description if description else labeled_spectrogram.id) + ": " + '"{}"'.format(
+            predict(labeled_spectrogram)))
 
     def record_and_print_prediction(description: str = None) -> None:
         print_prediction(record_plot_and_save(), description=description)
@@ -98,10 +103,37 @@ def predict_recording() -> None:
     print_example_predictions()
 
 
-def summarize_german_corpus():
+german_corpus_csv = german_corpus_directory / "corpus.csv"
+
+
+def summarize_and_save_german_corpus():
     corpus = german_corpus(german_corpus_directory)
-    corpus.summarize_to_csv(base_directory / "summary.csv")
     print(corpus.summary())
+    corpus.summarize_to_csv(german_corpus_directory / "summary.csv")
+    corpus.save(german_corpus_csv)
 
 
-train()
+def fill_up_german_cache():
+    loaded_corpus = Corpus.load(german_corpus_csv)
+    batch_generator = LabeledSpectrogramBatchGenerator(
+        corpus=loaded_corpus, spectrogram_cache_directory=german_spectrogram_cache_directory)
+    batch_generator.fill_cache()
+
+
+def predict_german_on_english_model():
+    wav2letter = load_best_wav2letter_model(allowed_characters=frequent_characters_in_german)
+
+    corpus = sc10(german_corpus_directory)
+
+    batch_generator = LabeledSpectrogramBatchGenerator(corpus=corpus,
+                                                       spectrogram_cache_directory=german_spectrogram_cache_directory)
+
+    wav2letter.print_expectations_vs_predictions(batch_generator.preview_batch())
+    print("Average loss: {}".format(wav2letter.loss(batch_generator.test_batches())))
+
+
+# summarize_and_save_german_corpus()
+
+# fill_up_german_cache()
+
+predict_german_on_english_model()

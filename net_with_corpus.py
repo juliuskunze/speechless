@@ -5,7 +5,7 @@ from net import Wav2Letter
 
 
 class Wav2LetterWithCorpus:
-    def __init__(self, wav2letter: Wav2Letter, corpus: Corpus, spectrogram_cache_directory: Path, batch_size: int):
+    def __init__(self, wav2letter: Wav2Letter, corpus: Corpus, spectrogram_cache_directory: Path, batch_size: int = 64):
         self.batch_size = batch_size
         self.wav2letter = wav2letter
         self.corpus = corpus
@@ -17,7 +17,7 @@ class Wav2LetterWithCorpus:
         self.wav2letter.train(self.batch_generator.training_batches(),
                               tensor_board_log_directory=tensor_board_log_directory,
                               net_directory=net_directory,
-                              test_labeled_spectrogram_batch=self.batch_generator.preview_batch(),
+                              preview_labeled_spectrogram_batch=self.batch_generator.preview_batch(),
                               samples_per_epoch=self.batch_generator.batch_size * batches_per_epoch)
 
     def test(self):

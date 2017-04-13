@@ -30,7 +30,9 @@ class LibriSpeechCorpus(Corpus):
                  tags_to_ignore: Iterable[str] = list(),
                  id_filter_regex=re.compile('[\s\S]*'),
                  training_test_split: Callable[[List[LabeledExample]], Tuple[
-                     List[LabeledExample], List[LabeledExample]]] = TrainingTestSplit.randomly()):
+                     List[LabeledExample], List[LabeledExample]]] = TrainingTestSplit.randomly(),
+                 maximum_example_duration_in_s: int = 1000):
+        self.maximum_example_duration_in_s = maximum_example_duration_in_s
         self.training_test_split = training_test_split
         self.id_filter_regex = id_filter_regex
         self.tags_to_ignore = tags_to_ignore
@@ -87,14 +89,18 @@ class LibriSpeechCorpus(Corpus):
                                   original_label=original_positional_label.label,
                                   positional_label=positional_label)
 
-        self.examples_with_empty = [example(file) for file in audio_files if
-                                    name_without_extension(file) in positional_label_by_id.keys()]
+        self.examples_with_empty_and_too_long = [example(file) for file in audio_files if
+                                                 name_without_extension(file) in positional_label_by_id.keys()]
 
-        examples = sorted([e for e in self.examples_with_empty if e.label], key=lambda x: x.id)
+        self.examples_with_too_long = [e for e in self.examples_with_empty_and_too_long if e.label]
 
-        training_examples, test_examples = self.training_test_split(examples)
+        examples = [e for e in self.examples_with_too_long
+                    if e.duration_in_s <= maximum_example_duration_in_s]
 
-        super().__init__(examples=examples, training_examples=training_examples, test_examples=test_examples)
+        training_examples, test_examples = self.training_test_split(sorted(examples,
+                                                                           key=lambda x: x.id))
+
+        super().__init__(training_examples=training_examples, test_examples=test_examples)
 
     def _remove_tags_to_ignore(self, text: str) -> str:
         return reduce(lambda text, tag: text.replace(tag, ""), self.tags_to_ignore, text)
@@ -166,10 +172,15 @@ class LibriSpeechCorpus(Corpus):
                  len(self.empty_examples), [e.id for e in self.empty_examples[:10]],
                  self.duplicate_label_count, self.most_duplicated_labels,
                  len(self.training_examples), len(self.test_examples),
-                 len(self.examples_without_positional_labels)]]
+                 len(self.examples_without_positional_labels),
+                 self.total_duration_in_h,
+                 self.total_training_duration_in_h,
+                 self.total_test_duration_in_h,
+                 self.total_duration_of_too_long_examples_in_h,
+                 len(self.too_long_examples)]]
 
     def summary(self) -> str:
-        description = "File types: {}\n{}{}{}{}{}{} extracted examples, of them {} invalid, {} empty (will be excluded), {} duplicate, {} without positions.\n{} training examples, {} test examples.".format(
+        description = "File types: {}\n{}{}{}{}{}{} extracted examples ({}h total), of them {} invalid, {} empty (will be excluded), {} too long ({}h, will be excluded), {} duplicate, {} without positions.\n{} training examples ({}h total), {} test examples ({}h total).".format(
             self.file_type_summary,
             "Out of {} audio files, {} were excluded by regex {}\n".format(
                 len(self.unfiltered_audio_files), self.filtered_out_count,
@@ -185,15 +196,20 @@ class LibriSpeechCorpus(Corpus):
 
             "Removed label tags: {}\n".format(self.tag_summary) if self.tag_summary != "" else "",
             self.invalid_examples_summary,
-            len(self.examples),
+            len(self.examples), self.total_duration_in_h,
             len(self.invalid_examples_texts),
             len(self.empty_examples),
+            len(self.too_long_examples), self.total_duration_of_too_long_examples_in_h,
             self.duplicate_label_count,
             len(self.examples_without_positional_labels),
             len(self.training_examples),
-            len(self.test_examples))
+            self.total_training_duration_in_h,
+            len(self.test_examples),
+            self.total_test_duration_in_h)
 
-        return " ".join(self.corpus_names) + "\n" + "\n".join("\t" + line for line in description.splitlines())
+        summary = " ".join(self.corpus_names) + "\n" + "\n".join("\t" + line for line in description.splitlines())
+        print(summary)
+        return summary
 
     @lazy
     def invalid_examples_summary(self):
@@ -231,7 +247,11 @@ class LibriSpeechCorpus(Corpus):
 
     @lazy
     def empty_examples(self):
-        return [e for e in self.examples_with_empty if not e.label]
+        return [e for e in self.examples_with_empty_and_too_long if not e.label]
+
+    @lazy
+    def too_long_examples(self):
+        return [e for e in self.examples_with_too_long if e.duration_in_s > self.maximum_example_duration_in_s]
 
     @lazy
     def duplicate_label_count(self):
@@ -247,6 +267,22 @@ class LibriSpeechCorpus(Corpus):
                 for e in self.examples
                 for tag in self.tags_to_ignore
                 for counted_tag in [tag] * e.tag_count(tag)]
+
+    @lazy
+    def total_training_duration_in_h(self):
+        return sum(e.duration_in_s for e in self.training_examples) / 3600
+
+    @lazy
+    def total_test_duration_in_h(self):
+        return sum(e.duration_in_s for e in self.test_examples) / 3600
+
+    @lazy
+    def total_duration_in_h(self):
+        return sum(e.duration_in_s for e in self.examples) / 3600
+
+    @lazy
+    def total_duration_of_too_long_examples_in_h(self):
+        return sum(e.duration_in_s for e in self.too_long_examples) / 3600
 
     @lazy
     def examples_without_positional_labels(self):

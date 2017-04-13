@@ -1,44 +1,46 @@
+import multiprocessing
 import random
 from abc import ABCMeta, abstractmethod
+from enum import Enum
+from multiprocessing.pool import Pool
 from pathlib import Path
 
-import numpy
-from numpy import ndarray
 from os import makedirs
 from typing import List, Iterable, Callable, Tuple, Any
 
 import tools
-from labeled_example import LabeledExample
-from tools import group
+from labeled_example import LabeledExample, LabeledSpectrogram, CachedLabeledSpectrogram
+from tools import group, paginate
 
 
 class ParsingException(Exception):
     pass
 
 
+class Phase(Enum):
+    training = "training"
+    test = "test"
+
+
 class Corpus:
     __metaclass__ = ABCMeta
 
-    def __init__(self, examples: List[LabeledExample],
+    def __init__(self,
                  training_examples: List[LabeledExample],
                  test_examples: List[LabeledExample]):
-        self.examples = examples
         self.training_examples = training_examples
         self.test_examples = test_examples
+        self.examples = training_examples + test_examples
 
-        duplicate_ids = tools.duplicates(e.id for e in examples)
         duplicate_training_ids = tools.duplicates(e.id for e in training_examples)
-        duplicate_test_ids = tools.duplicates(e.id for e in test_examples)
-        overlapping_ids = tools.duplicates(e.id for e in (test_examples + training_examples))
-
-        if len(duplicate_ids) > 0:
-            raise ValueError("Duplicate ids in examples: {}".format(duplicate_ids))
-
         if len(duplicate_training_ids) > 0:
             raise ValueError("Duplicate ids in training examples: {}".format(duplicate_training_ids))
 
+        duplicate_test_ids = tools.duplicates(e.id for e in test_examples)
         if len(duplicate_test_ids) > 0:
-            raise ValueError("Duplicate ds in test examples: {}".format(duplicate_test_ids))
+            raise ValueError("Duplicate ids in test examples: {}".format(duplicate_test_ids))
+
+        overlapping_ids = tools.duplicates(e.id for e in self.examples)
 
         if len(overlapping_ids) > 0:
             raise ValueError("Overlapping training and test set: {}".format(overlapping_ids))
@@ -51,28 +53,48 @@ class Corpus:
     def summary(self) -> str:
         raise NotImplementedError
 
-    def summarize_to_csv(self, csv_path: Path) -> None:
+    def summarize_to_csv(self, summary_csv_file: Path) -> None:
         import csv
-        with csv_path.open('w', encoding='utf8') as csv_summary_file:
+        with summary_csv_file.open('w', encoding='utf8') as csv_summary_file:
             writer = csv.writer(csv_summary_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
 
             for row in self.csv_rows():
                 writer.writerow(row)
 
+    def save(self, corpus_csv_file: Path):
+        import csv
+        with corpus_csv_file.open('w', encoding='utf8') as opened_csv:
+            writer = csv.writer(opened_csv, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+
+            examples_and_phase = [(e, Phase.training) for e in self.training_examples] + \
+                                 [(e, Phase.test) for e in self.test_examples]
+
+            for e, phase in examples_and_phase:
+                writer.writerow((e.id, str(e.audio_file), e.label, phase.value))
+
+    @staticmethod
+    def load(corpus_csv_file: Path) -> 'Corpus':
+        import csv
+        with corpus_csv_file.open(encoding='utf8') as opened_csv:
+            reader = csv.reader(opened_csv, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+
+            examples = [(LabeledExample(audio_file=Path(audio_file_path), id=id, label=label), Phase[phase])
+                        for id, audio_file_path, label, phase in reader]
+
+            return Corpus(training_examples=[e for e, phase in examples if phase == Phase.training],
+                          test_examples=[e for e, phase in examples if phase == Phase.test])
+
 
 class CombinedCorpus(Corpus):
-    def __init__(self, corpus_providers: List[Corpus]):
-        self.corpora = corpus_providers
+    def __init__(self, corpora: List[Corpus]):
+        self.corpora = corpora
         super().__init__(
-            examples=[example
-                      for provider in corpus_providers
-                      for example in provider.examples],
             training_examples=[example
-                               for provider in corpus_providers
-                               for example in provider.training_examples],
+                               for corpus in corpora
+                               for example in corpus.training_examples],
             test_examples=[example
-                           for provider in corpus_providers
-                           for example in provider.test_examples])
+                           for corpus in corpora
+                           for example in corpus.test_examples])
 
     def csv_rows(self) -> List[str]:
         return [row
@@ -80,7 +102,7 @@ class CombinedCorpus(Corpus):
                 for row in corpus.csv_rows()]
 
     def summary(self) -> str:
-        return "\n\n".join([corpus_provider.summary() for corpus_provider in self.corpora]) + \
+        return "\n\n".join([corpus.summary() for corpus in self.corpora]) + \
                "\n\n {} total, {} training, {} test".format(
                    len(self.examples), len(self.training_examples), len(self.test_examples))
 
@@ -134,70 +156,29 @@ class TrainingTestSplit:
         return split
 
 
-def paginate(sequence: List, page_size: int):
-    for start in range(0, len(sequence), page_size):
-        yield sequence[start:start + page_size]
-
-
-class LabeledSpectrogram:
-    __metaclass__ = ABCMeta
-
-    @abstractmethod
-    def label(self) -> str: raise NotImplementedError
-
-    @abstractmethod
-    def spectrogram(self) -> ndarray: raise NotImplementedError
-
-
-class CachedLabeledSpectrogram(LabeledSpectrogram):
-    def __init__(self, example: LabeledExample, spectrogram_cache_directory: Path,
-                 spectrogram_from_example: Callable[[LabeledExample], ndarray] =
-                 lambda x: x.z_normalized_transposed_spectrogram()):
-        self.spectrogram_from_example = spectrogram_from_example
-        self.example = example
-        self.spectrogram_cache_file = spectrogram_cache_directory / "{}.npy".format(example.id)
-
-    def label(self) -> str:
-        return self.example.label
-
-    def spectrogram(self) -> ndarray:
-        if not self.spectrogram_cache_file.exists():
-            return self._calculate_and_save_spectrogram()
-
-        try:
-            return numpy.load(str(self.spectrogram_cache_file))
-        except ValueError as e:
-            print("Recalculating cached file {} because loading failed.".format(self.spectrogram_cache_file))
-            return self._calculate_and_save_spectrogram()
-
-    def _calculate_and_save_spectrogram(self):
-        spectrogram = self.spectrogram_from_example(self.example)
-        numpy.save(str(self.spectrogram_cache_file), spectrogram)
-        return spectrogram
+def _cache_spectrogram(labeled_spectrogram: CachedLabeledSpectrogram) -> None:
+    labeled_spectrogram.z_normalized_transposed_spectrogram()
 
 
 class LabeledSpectrogramBatchGenerator:
-    def __init__(self, corpus: Corpus, spectrogram_cache_directory: Path,
-                 spectrogram_from_example: Callable[[LabeledExample], ndarray] =
-                 lambda x: x.z_normalized_transposed_spectrogram(),
-                 batch_size: int = 64):
+    def __init__(self, corpus: Corpus, spectrogram_cache_directory: Path, batch_size: int = 64):
         # not Path.mkdir() for compatibility with Python 3.4
         makedirs(str(spectrogram_cache_directory), exist_ok=True)
 
         self.batch_size = batch_size
         self.spectrogram_cache_directory = spectrogram_cache_directory
         self.labeled_training_spectrograms = [
-            CachedLabeledSpectrogram(example, spectrogram_cache_directory=spectrogram_cache_directory,
-                                     spectrogram_from_example=spectrogram_from_example)
+            CachedLabeledSpectrogram(example, spectrogram_cache_directory=spectrogram_cache_directory)
             for example in corpus.training_examples]
 
         self.labeled_test_spectrograms = [
-            CachedLabeledSpectrogram(example, spectrogram_cache_directory=spectrogram_cache_directory,
-                                     spectrogram_from_example=spectrogram_from_example)
+            CachedLabeledSpectrogram(example, spectrogram_cache_directory=spectrogram_cache_directory)
             for example in corpus.test_examples]
 
-    def preview_batch(self):
-        return self.labeled_training_spectrograms[:self.batch_size]
+        self.labeled_spectrograms = self.labeled_training_spectrograms + self.labeled_test_spectrograms
+
+    def preview_batch(self) -> List[LabeledSpectrogram]:
+        return self.labeled_spectrograms[:self.batch_size]
 
     def training_batches(self) -> Iterable[List[LabeledSpectrogram]]:
         while True:
@@ -205,3 +186,19 @@ class LabeledSpectrogramBatchGenerator:
 
     def test_batches(self) -> Iterable[List[LabeledSpectrogram]]:
         return paginate(self.labeled_test_spectrograms, self.batch_size)
+
+    def fill_cache(self) -> None:
+        with Pool(processes=multiprocessing.cpu_count()) as pool:
+            total = len(self.labeled_spectrograms)
+            to_calculate = [s for s in self.labeled_spectrograms if not s.exists()]
+
+            print("Filling cache with {} spectrograms: {} already cached, {} yet to calculate.".format(
+                total, total - len(to_calculate), len(to_calculate)))
+            print([str(e.spectrogram_cache_file) for e in to_calculate])
+            for index, labeled_spectrogram in enumerate(to_calculate):
+                if index == 0:
+                    print(labeled_spectrogram.spectrogram_cache_file)
+                pool.apply(_cache_spectrogram, (labeled_spectrogram,))
+
+            pool.close()
+            pool.join()

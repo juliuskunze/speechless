@@ -18,5 +18,5 @@ class LabeledExampleTest(TestCase):
             sr=example.sample_rate)
 
         self.assertTrue(np.array_equal(mel_power_spectrogram,
-                                       example.spectrogram(type=SpectrogramType.power,
-                                                           frequency_scale=SpectrogramFrequencyScale.mel)))
+                                       example.z_normalized_transposed_spectrogram(type=SpectrogramType.power,
+                                                                                   frequency_scale=SpectrogramFrequencyScale.mel)))
