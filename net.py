@@ -1,7 +1,6 @@
 from functools import reduce
 from pathlib import Path
 
-import numpy
 from keras import backend
 from keras.callbacks import Callback, TensorBoard
 from keras.engine import Input, Layer, Model
@@ -9,7 +8,7 @@ from keras.layers import Lambda, Dropout, Conv1D
 from keras.models import Sequential
 from keras.optimizers import Optimizer, Adam
 from lazy import lazy
-from numpy import ndarray, zeros, array, reshape
+from numpy import ndarray, zeros, array, reshape, insert, random, concatenate
 from os import makedirs
 from typing import List, Callable, Iterable, Tuple, Dict, Optional
 
@@ -43,25 +42,9 @@ class Wav2Letter:
                  asg_transition_probabilities: Optional[ndarray] = None,
                  asg_initial_probabilities: Optional[ndarray] = None):
 
-        def grapheme_encoding(allowed_characters):
-            return AsgGraphemeEncoding(allowed_characters=allowed_characters) \
-                if use_asg else CtcGraphemeEncoding(allowed_characters=allowed_characters)
-
-        if allowed_characters_for_loaded_model is not None:
-            loaded_allowed_character_count = len(allowed_characters_for_loaded_model)
-            self.extra_allowed_character_count = len(allowed_characters) - loaded_allowed_character_count
-
-            if self.extra_allowed_character_count < 0 or \
-                            allowed_characters[:loaded_allowed_character_count] != allowed_characters_for_loaded_model:
-                raise ValueError(
-                    "Allowed characters must begin with the allowed characters for loaded model in the same order.")
-
         self.allowed_characters_for_loaded_model = allowed_characters_for_loaded_model
-
-        self.grapheme_encoding = grapheme_encoding(allowed_characters)
-        self.predictive_net_grapheme_set_size = grapheme_encoding(
-            allowed_characters if allowed_characters_for_loaded_model is None else allowed_characters_for_loaded_model). \
-            grapheme_set_size
+        self.grapheme_encoding = AsgGraphemeEncoding(allowed_characters=allowed_characters) \
+            if use_asg else CtcGraphemeEncoding(allowed_characters=allowed_characters)
 
         self.asg_transition_probabilities = self._default_asg_transition_probabilities(
             self.grapheme_encoding.grapheme_set_size) \
@@ -82,24 +65,68 @@ class Wav2Letter:
         self.dropout = dropout
         self.predictive_net = self.create_predictive_net()
         self.prediction_phase_flag = 0.
+
         if load_model_from_directory is not None:
-            self.predictive_net.load_weights(str(load_model_from_directory / self.model_file_name(load_epoch)))
+            if self.allowed_characters_for_loaded_model is None:
+                self.predictive_net.load_weights(str(load_model_from_directory / self.model_file_name(load_epoch)))
+            else:
+                loaded_allowed_character_count = len(allowed_characters_for_loaded_model)
+                extra_allowed_character_count = len(allowed_characters) - loaded_allowed_character_count
+
+                if extra_allowed_character_count < 0 or \
+                                allowed_characters[
+                                :loaded_allowed_character_count] != allowed_characters_for_loaded_model:
+                    raise ValueError(
+                        "Allowed characters must begin with the allowed characters for loaded model in the same order.")
+
+                original_wav2letter = Wav2Letter(input_size_per_time_step=input_size_per_time_step,
+                                                 allowed_characters=allowed_characters_for_loaded_model,
+                                                 use_raw_wave_input=use_raw_wave_input,
+                                                 activation=activation,
+                                                 output_activation=output_activation,
+                                                 optimizer=optimizer,
+                                                 dropout=dropout,
+                                                 load_model_from_directory=load_model_from_directory,
+                                                 load_epoch=load_epoch,
+                                                 frozen_layer_count=frozen_layer_count,
+                                                 use_asg=use_asg,
+                                                 asg_initial_probabilities=asg_initial_probabilities,
+                                                 asg_transition_probabilities=asg_transition_probabilities)
+
+                for index, layer in enumerate(self.predictive_net.layers):
+                    original_weights, original_biases = original_wav2letter.predictive_net.layers[index].get_weights()
+
+                    if index == len(self.predictive_net.layers) - 1:
+                        original_shape = original_weights.shape
+                        grapheme_axis = 2
+                        to_insert = zeros((original_shape[0], original_shape[1], extra_allowed_character_count))
+                        original_weights = insert(
+                            original_weights,
+                            axis=grapheme_axis,
+                            obj=[len(self.allowed_characters_for_loaded_model)],
+                            values=to_insert)
+
+                        original_biases = insert(
+                            original_biases, original_biases.shape[0] - 1,
+                            zeros((extra_allowed_character_count,)), axis=0)
+
+                    layer.set_weights([original_weights, original_biases])
 
     @staticmethod
     def _default_asg_transition_probabilities(grapheme_set_size: int) -> ndarray:
-        asg_transition_probabilities = numpy.random.randint(1, 15,
-                                                            (grapheme_set_size + 1, grapheme_set_size + 1))
-        zero_array = numpy.zeros(grapheme_set_size + 1)
+        asg_transition_probabilities = random.randint(1, 15,
+                                                      (grapheme_set_size + 1, grapheme_set_size + 1))
+        zero_array = zeros(grapheme_set_size + 1)
         asg_transition_probabilities[0] = zero_array
         asg_transition_probabilities[:, 0] = zero_array
         # sum up each column, add dummy 1 in front for easier division later
-        transition_norms = numpy.concatenate(([1], asg_transition_probabilities[:, 1:].sum(axis=0)))
+        transition_norms = concatenate(([1], asg_transition_probabilities[:, 1:].sum(axis=0)))
         asg_transition_probabilities = asg_transition_probabilities / transition_norms
         return asg_transition_probabilities
 
     @staticmethod
     def _default_asg_initial_probabilities(grapheme_set_size: int) -> ndarray:
-        asg_initial_probabilities = numpy.random.randint(1, 15, grapheme_set_size + 1)
+        asg_initial_probabilities = random.randint(1, 15, grapheme_set_size + 1)
         asg_initial_probabilities[0] = 0
         asg_initial_probabilities = asg_initial_probabilities / asg_initial_probabilities.sum()
         # N.B. beware that initial_logprobs[0] is now -inf, NOT 0!
@@ -142,7 +169,7 @@ class Wav2Letter:
             return [layer for conv in [
                 convolution("big_conv_1", filter_count=out_filter_count, filter_length=32, never_dropout=True),
                 convolution("big_conv_2", filter_count=out_filter_count, filter_length=1, never_dropout=True),
-                convolution("output_conv", filter_count=self.predictive_net_grapheme_set_size,
+                convolution("output_conv", filter_count=self.grapheme_encoding.grapheme_set_size,
                             filter_length=1,
                             activation=self.output_activation, never_dropout=True)
             ] for layer in conv]
@@ -151,11 +178,6 @@ class Wav2Letter:
 
         for layer in layers[:self.frozen_layer_count]:
             layer.trainable = False
-
-        if self.allowed_characters_for_loaded_model is not None:
-            import tensorflow
-            return Sequential(layers + [Lambda(lambda predictions: tensorflow.pad(
-                predictions, ((0, 0), (0, 0), (0, self.extra_allowed_character_count))))])
 
         return Sequential(layers)
 
@@ -238,7 +260,8 @@ class Wav2Letter:
 
         return average([print_and_get_batch_loss(x, y) for x, y in inputs])
 
-    def _generator(self, labeled_spectrogram_batches: Iterable[List[LabeledSpectrogram]]):
+    def _generator(self, labeled_spectrogram_batches: Iterable[List[LabeledSpectrogram]]) -> Iterable[
+        Tuple[Dict, ndarray]]:
         for index, labeled_spectrogram_batch in enumerate(labeled_spectrogram_batches):
             batch_size = len(labeled_spectrogram_batch)
             dummy_labels_for_dummy_loss_function = zeros((batch_size,))

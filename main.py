@@ -2,7 +2,7 @@ from typing import List
 
 from corpus import LabeledSpectrogramBatchGenerator, Corpus
 from english_corpus import LibriSpeechCorpus
-from german_corpus import german_corpus, sc10
+from german_corpus import german_corpus
 from grapheme_enconding import frequent_characters_in_english, frequent_characters_in_german
 from labeled_example import LabeledExample, LabeledSpectrogram
 from recording import Recorder
@@ -114,16 +114,20 @@ def summarize_and_save_german_corpus():
 
 
 def fill_up_german_cache():
-    loaded_corpus = Corpus.load(german_corpus_csv)
     batch_generator = LabeledSpectrogramBatchGenerator(
-        corpus=loaded_corpus, spectrogram_cache_directory=german_spectrogram_cache_directory)
+        corpus=cached_german_corpus(), spectrogram_cache_directory=german_spectrogram_cache_directory)
+
     batch_generator.fill_cache()
+
+
+def cached_german_corpus():
+    return Corpus.load(german_corpus_csv)
 
 
 def predict_german_on_english_model():
     wav2letter = load_best_wav2letter_model(allowed_characters=frequent_characters_in_german)
 
-    corpus = sc10(german_corpus_directory)
+    corpus = cached_german_corpus()
 
     batch_generator = LabeledSpectrogramBatchGenerator(corpus=corpus,
                                                        spectrogram_cache_directory=german_spectrogram_cache_directory)

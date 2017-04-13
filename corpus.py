@@ -198,7 +198,7 @@ class LabeledSpectrogramBatchGenerator:
             for index, labeled_spectrogram in enumerate(to_calculate):
                 if index == 0:
                     print(labeled_spectrogram.spectrogram_cache_file)
-                pool.apply(_cache_spectrogram, (labeled_spectrogram,))
+                pool.apply_async(_cache_spectrogram, (labeled_spectrogram,))
 
             pool.close()
             pool.join()
