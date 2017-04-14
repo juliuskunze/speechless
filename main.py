@@ -136,8 +136,8 @@ def load_best_wav2letter_model(mel_frequency_count: int = 128,
     return Wav2Letter(
         allowed_characters=allowed_characters,
         input_size_per_time_step=mel_frequency_count,
-        load_model_from_directory=nets_base_directory / "20170314-134351-adam-small-learning-rate-complete-95",
-        load_epoch=1689,
+        load_model_from_directory=nets_base_directory / "20170316-180957-adam-small-learning-rate-complete-95",
+        load_epoch=1192,
         allowed_characters_for_loaded_model=english_frequent_characters,
         frozen_layer_count=frozen_layer_count)
 
@@ -192,12 +192,11 @@ def summarize_and_save_german_corpus():
 def summarize_and_save_english_corpus():
     Configuration.english().summarize_and_save_corpus()
 
-
 # summarize_and_save_german_corpus()
 
 # Configuration.german().fill_up_cache()
 
-Configuration.german().test_best_model()
+# Configuration.german().test_best_model()
 
 # summarize_and_save_english_corpus()
 
@@ -206,3 +205,5 @@ Configuration.german().test_best_model()
 # LabeledExampleTest().test()
 
 # Configuration.german().train()
+
+# net = load_best_wav2letter_model().predictive_net
