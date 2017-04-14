@@ -33,7 +33,7 @@ def load_cached_corpus(corpus_directory: Path) -> Corpus:
     return Corpus.load(corpus_directory / "corpus.csv")
 
 
-class LanguageConfig:
+class Configuration:
     def __init__(self,
                  name: str,
                  allowed_characters: english_frequent_characters,
@@ -50,34 +50,38 @@ class LanguageConfig:
     def corpus(self) -> Corpus:
         return self.corpus_from_directory(self.corpus_directory)
 
-    @staticmethod
-    def english() -> 'LanguageConfig':
-        return LanguageConfig(name="English",
-                              allowed_characters=english_frequent_characters,
-                              corpus_from_directory=english_corpus,
-                              corpus_directory=english_corpus_directory,
-                              spectrogram_cache_directory=english_spectrogram_cache_directory)
+    @lazy
+    def batch_generator(self) -> LabeledSpectrogramBatchGenerator:
+        return LabeledSpectrogramBatchGenerator(corpus=self.corpus,
+                                                spectrogram_cache_directory=self.spectrogram_cache_directory)
 
     @staticmethod
-    def german(from_cached: bool = True) -> 'LanguageConfig':
-        return LanguageConfig(name="German",
-                              allowed_characters=german_frequent_characters,
-                              corpus_from_directory=load_cached_corpus if from_cached else german_corpus,
-                              corpus_directory=german_corpus_directory,
-                              spectrogram_cache_directory=german_spectrogram_cache_directory)
+    def english() -> 'Configuration':
+        return Configuration(name="English",
+                             allowed_characters=english_frequent_characters,
+                             corpus_from_directory=english_corpus,
+                             corpus_directory=english_corpus_directory,
+                             spectrogram_cache_directory=english_spectrogram_cache_directory)
+
+    @staticmethod
+    def german(from_cached: bool = True) -> 'Configuration':
+        return Configuration(name="German",
+                             allowed_characters=german_frequent_characters,
+                             corpus_from_directory=load_cached_corpus if from_cached else german_corpus,
+                             corpus_directory=german_corpus_directory,
+                             spectrogram_cache_directory=german_spectrogram_cache_directory)
 
     def train(self):
         from net_with_corpus import Wav2LetterWithCorpus
         from net import Wav2Letter
 
-        batch_size = 64
         mel_frequency_count = 128
         batches_per_epoch = 100
         run_name = timestamp() + "-adam-small-learning-rate-complete-training-{}".format(self.name)
 
         wav2letter = Wav2Letter(mel_frequency_count, allowed_characters=self.allowed_characters)
 
-        wav2letter_with_corpus = Wav2LetterWithCorpus(wav2letter, self.corpus, batch_size=batch_size,
+        wav2letter_with_corpus = Wav2LetterWithCorpus(wav2letter, self.corpus,
                                                       spectrogram_cache_directory=self.spectrogram_cache_directory)
 
         wav2letter_with_corpus.train(tensor_board_log_directory=tensorboard_log_base_directory / run_name,
@@ -91,10 +95,13 @@ class LanguageConfig:
         corpus.save(self.corpus_directory / "corpus.csv")
 
     def fill_up_cache(self):
-        batch_generator = LabeledSpectrogramBatchGenerator(
-            corpus=self.corpus, spectrogram_cache_directory=self.spectrogram_cache_directory)
+        self.batch_generator.fill_cache()
 
-        batch_generator.fill_cache()
+    def test_best_model(self):
+        wav2letter = load_best_wav2letter_model(allowed_characters=self.allowed_characters)
+
+        print(wav2letter.expectations_vs_predictions(self.batch_generator.preview_batch()))
+        print("Average loss: {}".format(wav2letter.loss(self.batch_generator.test_batches())))
 
 
 def train_transfer_english_to_german():
@@ -179,34 +186,23 @@ def predict_recording() -> None:
 
 
 def summarize_and_save_german_corpus():
-    LanguageConfig.german(from_cached=False).summarize_and_save_corpus()
+    Configuration.german(from_cached=False).summarize_and_save_corpus()
 
 
 def summarize_and_save_english_corpus():
-    LanguageConfig.english().summarize_and_save_corpus()
+    Configuration.english().summarize_and_save_corpus()
 
-
-def predict_german_on_english_model():
-    wav2letter = load_best_wav2letter_model(allowed_characters=german_frequent_characters)
-
-    corpus = sc10(german_corpus_directory, training_test_split=lambda examples: ([], examples[:128]))
-
-    batch_generator = LabeledSpectrogramBatchGenerator(corpus=corpus,
-                                                       spectrogram_cache_directory=german_spectrogram_cache_directory)
-
-    print(wav2letter.expectations_vs_predictions(batch_generator.preview_batch()))
-    print("Average loss: {}".format(wav2letter.loss(batch_generator.test_batches())))
 
 # summarize_and_save_german_corpus()
 
-# LanguageConfig.german().fill_up_cache()
+# Configuration.german().fill_up_cache()
 
-# predict_german_on_english_model()
+Configuration.german().test_best_model()
 
 # summarize_and_save_english_corpus()
 
-LanguageConfig.german().train()
+# Configuration.german().train()
 
 # LabeledExampleTest().test()
 
-# LanguageConfig.german().train()
+# Configuration.german().train()
