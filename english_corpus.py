@@ -105,7 +105,8 @@ class LibriSpeechCorpus(Corpus):
         super().__init__(training_examples=training_examples, test_examples=test_examples)
 
     def is_too_long(self, example: LabeledExample) -> bool:
-        return self.maximum_example_duration_in_s is not None and example.duration_in_s > example.mel_frequency_count
+        return self.maximum_example_duration_in_s is not None and example.duration_in_s > \
+                                                                  self.maximum_example_duration_in_s
 
     def is_too_short(self, example: LabeledExample) -> bool:
         return self.minimum_duration_per_character_in_s is not None and example.duration_in_s < len(
