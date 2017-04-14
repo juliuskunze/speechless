@@ -12,7 +12,7 @@ from lazy import lazy
 from numpy import ndarray, zeros, array, reshape, insert, random, concatenate
 from typing import List, Callable, Iterable, Tuple, Dict, Optional
 
-from grapheme_enconding import CtcGraphemeEncoding, frequent_characters_in_english, AsgGraphemeEncoding
+from grapheme_enconding import CtcGraphemeEncoding, english_frequent_characters, AsgGraphemeEncoding
 from labeled_example import LabeledSpectrogram
 from tools import average, mkdir
 
@@ -88,7 +88,7 @@ class Wav2Letter:
 
     def __init__(self,
                  input_size_per_time_step: int,
-                 allowed_characters: List[chr] = frequent_characters_in_english,
+                 allowed_characters: List[chr] = english_frequent_characters,
                  use_raw_wave_input: bool = False,
                  activation: str = "relu",
                  output_activation: str = "softmax",
@@ -344,8 +344,6 @@ class Wav2Letter:
               tensor_board_log_directory: Path,
               net_directory: Path,
               batches_per_epoch: int):
-        self.expectations_vs_predictions(preview_labeled_spectrogram_batch)
-
         self.loss_net.fit_generator(self._generator(labeled_spectrogram_batches), epochs=100000000,
                                     steps_per_epoch=batches_per_epoch,
                                     callbacks=self.create_callbacks(

@@ -12,7 +12,7 @@ from typing import Iterable, Optional, List, Callable, Tuple, Dict
 from urllib import request
 
 from corpus import Corpus, TrainingTestSplit, CombinedCorpus
-from grapheme_enconding import frequent_characters_in_english
+from grapheme_enconding import english_frequent_characters
 from labeled_example import LabeledExample, PositionalLabel
 from tools import mkdir, name_without_extension, count_summary, distinct, extension
 
@@ -26,7 +26,7 @@ class LibriSpeechCorpus(Corpus):
                  mel_frequency_count: int = 128,
                  root_compressed_directory_name_to_skip: Optional[str] = "LibriSpeech/",
                  subdirectory_depth: int = 3,
-                 allowed_characters: List[chr] = frequent_characters_in_english,
+                 allowed_characters: List[chr] = english_frequent_characters,
                  tags_to_ignore: Iterable[str] = list(),
                  id_filter_regex=re.compile('[\s\S]*'),
                  training_test_split: Callable[[List[LabeledExample]], Tuple[

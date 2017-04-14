@@ -8,7 +8,7 @@ from xml.etree import ElementTree
 
 from corpus import ParsingException, TrainingTestSplit, CombinedCorpus
 from english_corpus import LibriSpeechCorpus
-from grapheme_enconding import frequent_characters_in_german
+from grapheme_enconding import german_frequent_characters
 from labeled_example import LabeledExample, PositionalLabel
 from tools import read_text, single, single_or_none, name_without_extension, group
 
@@ -71,13 +71,13 @@ class GermanClarinCorpus(LibriSpeechCorpus):
                          tar_gz_extension=tar_gz_extension,
                          root_compressed_directory_name_to_skip=root_compressed_directory_name_to_skip,
                          subdirectory_depth=subdirectory_depth,
-                         allowed_characters=frequent_characters_in_german,
+                         allowed_characters=german_frequent_characters,
                          tags_to_ignore=tags_to_ignore,
                          id_filter_regex=id_filter_regex,
                          mel_frequency_count=mel_frequency_count,
                          training_test_split=training_test_split,
                          maximum_example_duration_in_s=35,
-                         minimum_duration_per_character=5 * 2 * 128 / 16000)
+                         minimum_duration_per_character=2 * 2 * 128 / 16000)
 
     def _extract_positional_label_by_id(self, files: Iterable[Path]) -> Dict[str, PositionalLabel]:
         json_ending = "_annot.json"

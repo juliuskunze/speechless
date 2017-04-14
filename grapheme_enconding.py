@@ -5,8 +5,8 @@ from itertools import groupby
 from numpy import argmax, ones, ndarray, array
 from typing import List
 
-frequent_characters_in_english = list(string.ascii_lowercase + " '")
-frequent_characters_in_german = frequent_characters_in_english + list("äöüß")
+english_frequent_characters = list(string.ascii_lowercase + " '")
+german_frequent_characters = english_frequent_characters + list("äöüß")
 
 
 class GraphemeEncodingBase:
@@ -60,7 +60,7 @@ class GraphemeEncodingBase:
 
 
 class AsgGraphemeEncoding(GraphemeEncodingBase):
-    def __init__(self, allowed_characters: List[chr] = frequent_characters_in_english):
+    def __init__(self, allowed_characters: List[chr] = english_frequent_characters):
         super().__init__(allowed_characters, special_grapheme_count=2)
 
         self.asg_twice = self.grapheme_set_size - 2
@@ -117,7 +117,7 @@ class AsgGraphemeEncoding(GraphemeEncodingBase):
 
 
 class CtcGraphemeEncoding(GraphemeEncodingBase):
-    def __init__(self, allowed_characters: List[chr] = frequent_characters_in_english):
+    def __init__(self, allowed_characters: List[chr] = english_frequent_characters):
         super().__init__(allowed_characters, special_grapheme_count=1)
 
         # ctc blank must be last (see Tensorflow's ctcloss documentation):
