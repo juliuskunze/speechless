@@ -9,7 +9,7 @@ from typing import List, Callable
 
 from corpus import LabeledSpectrogramBatchGenerator, Corpus
 from english_corpus import english_corpus
-from german_corpus import german_corpus, sc10
+from german_corpus import german_corpus
 from grapheme_enconding import english_frequent_characters, german_frequent_characters
 from labeled_example import LabeledExample, LabeledSpectrogram
 from recording import Recorder
@@ -19,14 +19,8 @@ base_directory = home_directory() / "speechless-data"
 tensorboard_log_base_directory = base_directory / "logs"
 nets_base_directory = base_directory / "nets"
 recording_directory = base_directory / "recordings"
-
 corpus_base_directory = base_directory / "corpus"
-english_corpus_directory = corpus_base_directory / "English"
-german_corpus_directory = corpus_base_directory / "German"
-
 spectrogram_cache_base_directory = base_directory / "spectrogram-cache"
-english_spectrogram_cache_directory = spectrogram_cache_base_directory / "English"
-german_spectrogram_cache_directory = spectrogram_cache_base_directory / "German"
 
 
 def load_cached_corpus(corpus_directory: Path) -> Corpus:
@@ -36,13 +30,14 @@ def load_cached_corpus(corpus_directory: Path) -> Corpus:
 class Configuration:
     def __init__(self,
                  name: str,
-                 allowed_characters: english_frequent_characters,
+                 allowed_characters: List[chr],
                  corpus_from_directory: Callable[[Path], Corpus],
-                 corpus_directory: Path,
-                 spectrogram_cache_directory: Path):
+                 corpus_directory: Path = None,
+                 spectrogram_cache_directory: Path = None):
         self.name = name
-        self.spectrogram_cache_directory = spectrogram_cache_directory
-        self.corpus_directory = corpus_directory
+        self.spectrogram_cache_directory = spectrogram_cache_directory if spectrogram_cache_directory else \
+            spectrogram_cache_base_directory / name
+        self.corpus_directory = corpus_directory if corpus_directory else corpus_base_directory / name
         self.corpus_from_directory = corpus_from_directory
         self.allowed_characters = allowed_characters
 
@@ -59,17 +54,13 @@ class Configuration:
     def english() -> 'Configuration':
         return Configuration(name="English",
                              allowed_characters=english_frequent_characters,
-                             corpus_from_directory=english_corpus,
-                             corpus_directory=english_corpus_directory,
-                             spectrogram_cache_directory=english_spectrogram_cache_directory)
+                             corpus_from_directory=english_corpus)
 
     @staticmethod
     def german(from_cached: bool = True) -> 'Configuration':
         return Configuration(name="German",
                              allowed_characters=german_frequent_characters,
-                             corpus_from_directory=load_cached_corpus if from_cached else german_corpus,
-                             corpus_directory=german_corpus_directory,
-                             spectrogram_cache_directory=german_spectrogram_cache_directory)
+                             corpus_from_directory=load_cached_corpus if from_cached else german_corpus)
 
     def train(self):
         from net_with_corpus import Wav2LetterWithCorpus
@@ -103,29 +94,25 @@ class Configuration:
         print(wav2letter.expectations_vs_predictions(self.batch_generator.preview_batch()))
         print("Average loss: {}".format(wav2letter.loss(self.batch_generator.test_batches())))
 
+    def train_transfer_from_best_english_model(self, trainable_layer_count: int = 1):
+        from net_with_corpus import Wav2LetterWithCorpus
 
-def train_transfer_english_to_german():
-    from net_with_corpus import Wav2LetterWithCorpus
+        mel_frequency_count = 128
+        batches_per_epoch = 100
+        layer_count = 11
+        frozen_layer_count = layer_count - trainable_layer_count
+        run_name = timestamp() + "-adam-small-learning-rate-transfer-to-{}-freeze-{}".format(self.name,
+                                                                                             frozen_layer_count)
 
-    batch_size = 64
-    mel_frequency_count = 128
-    batches_per_epoch = 100
-    layer_count = 11
-    trainable_layer_count = 1
-    frozen_layer_count = layer_count - trainable_layer_count
-    run_name = timestamp() + "-adam-small-learning-rate-transfer-sc10-freeze-{}".format(frozen_layer_count)
+        wav2letter = load_best_wav2letter_model(mel_frequency_count, allowed_characters=self.allowed_characters,
+                                                frozen_layer_count=frozen_layer_count)
 
-    wav2letter = load_best_wav2letter_model(mel_frequency_count, allowed_characters=german_frequent_characters,
-                                            frozen_layer_count=frozen_layer_count)
+        wav2letter_with_corpus = Wav2LetterWithCorpus(wav2letter, self.corpus,
+                                                      spectrogram_cache_directory=self.spectrogram_cache_directory)
 
-    corpus = sc10(german_corpus_directory, training_test_split=lambda examples: (examples[:batch_size], []))
-
-    wav2letter_with_corpus = Wav2LetterWithCorpus(wav2letter, corpus, batch_size=batch_size,
-                                                  spectrogram_cache_directory=german_spectrogram_cache_directory)
-
-    wav2letter_with_corpus.train(tensor_board_log_directory=tensorboard_log_base_directory / run_name,
-                                 net_directory=nets_base_directory / run_name,
-                                 batches_per_epoch=batches_per_epoch)
+        wav2letter_with_corpus.train(tensor_board_log_directory=tensorboard_log_base_directory / run_name,
+                                     net_directory=nets_base_directory / run_name,
+                                     batches_per_epoch=batches_per_epoch)
 
 
 def load_best_wav2letter_model(mel_frequency_count: int = 128,
@@ -185,20 +172,13 @@ def predict_recording() -> None:
     print_example_predictions()
 
 
-def summarize_and_save_german_corpus():
-    Configuration.german(from_cached=False).summarize_and_save_corpus()
-
-
-def summarize_and_save_english_corpus():
-    Configuration.english().summarize_and_save_corpus()
-
-# summarize_and_save_german_corpus()
+# Configuration.german(from_cached=False).summarize_and_save_corpus()
 
 # Configuration.german().fill_up_cache()
 
 # Configuration.german().test_best_model()
 
-# summarize_and_save_english_corpus()
+# Configuration.english().summarize_and_save_corpus()
 
 # Configuration.german().train()
 
@@ -207,3 +187,5 @@ def summarize_and_save_english_corpus():
 # Configuration.german().train()
 
 # net = load_best_wav2letter_model().predictive_net
+
+Configuration.german().train_transfer_from_best_english_model()
