@@ -14,7 +14,7 @@ from typing import List, Callable, Iterable, Tuple, Dict, Optional
 
 from grapheme_enconding import CtcGraphemeEncoding, english_frequent_characters, AsgGraphemeEncoding
 from labeled_example import LabeledSpectrogram
-from tools import average, mkdir
+from tools import average, mkdir, single, read_text
 
 
 class ExpectationVsPrediction:
@@ -100,8 +100,10 @@ class Wav2Letter:
                  frozen_layer_count: int = 0,
                  use_asg: bool = False,
                  asg_transition_probabilities: Optional[ndarray] = None,
-                 asg_initial_probabilities: Optional[ndarray] = None):
+                 asg_initial_probabilities: Optional[ndarray] = None,
+                 kenlm_directory: Path = None):
 
+        self.kenlm_directory = kenlm_directory
         self.allowed_characters_for_loaded_model = allowed_characters_for_loaded_model
         self.grapheme_encoding = AsgGraphemeEncoding(allowed_characters=allowed_characters) \
             if use_asg else CtcGraphemeEncoding(allowed_characters=allowed_characters)
@@ -260,9 +262,9 @@ class Wav2Letter:
     @lazy
     def loss_net(self) -> Model:
         """Returns the network that yields a loss given both input spectrograms and labels. Used for training."""
-        input_batch = Input(name=Wav2Letter.InputNames.input_batch, batch_shape=self.predictive_net.input_shape)
+        input_batch = self._input_batch_input()
         label_batch = Input(name=Wav2Letter.InputNames.label_batch, shape=(None,), dtype='int32')
-        prediction_lengths = Input(name=Wav2Letter.InputNames.prediction_lengths, shape=(1,), dtype='int64')
+        prediction_lengths = self._prediction_lengths_input()
         label_lengths = Input(name=Wav2Letter.InputNames.label_lengths, shape=(1,), dtype='int64')
 
         asg_transition_probabilities_variable = backend.variable(value=self.asg_transition_probabilities,
@@ -290,6 +292,9 @@ class Wav2Letter:
         loss_net.compile(loss=lambda dummy_labels, ctc_loss: ctc_loss, optimizer=self.optimizer)
         return loss_net
 
+    def _prediction_lengths_input(self):
+        return Input(name=Wav2Letter.InputNames.prediction_lengths, shape=(1,), dtype='int64')
+
     @staticmethod
     def _asg_lambda(args, transition_probabilities=None, initial_probabilities=None):
         # keras implementation can be plugged in here once ready:
@@ -302,7 +307,67 @@ class Wav2Letter:
         return backend.ctc_batch_cost(y_true=label_batch, y_pred=prediction_batch,
                                       input_length=prediction_lengths, label_length=label_lengths)
 
+    @lazy
+    def kenlm_net(self):
+        input_batch = self._input_batch_input()
+        prediction_lengths = self._prediction_lengths_input()
+
+        decoding_layer = Lambda(self._kenlm_decode_lambda, name='kenlm_decode')
+
+        prediction_batch = self.predictive_net(input_batch)
+        decoded = decoding_layer([prediction_batch, prediction_lengths])
+
+        return Model(inputs=[input_batch, prediction_lengths], outputs=[decoded])
+
+    def _kenlm_decode_lambda(self, args):
+        import tensorflow as tf
+
+        """
+        Modified version of ctc_decode employing a kenlm decoder. 
+        Needs a modified version of tensorflow available at https://github.com/timediv/tensorflow-with-kenlm to run.
+            # Returns
+                Tuple:
+                    List: Most probable decoded sequence (as a single element of a list). 
+                    Important: blank labels are returned as `-1`. 
+                    Tensor `(1, )` that contains the log probability of each decoded sequence.
+        """
+
+        prediction_batch, prediction_lengths = args
+        allowed_characters = self.grapheme_encoding.allowed_characters
+        expected_characters = list(single(read_text(self.kenlm_directory / "vocabulary", encoding='utf8').splitlines()))
+        if allowed_characters != expected_characters:
+            raise ValueError("Allowed characters {} differ from those expected by kenlm decoder: {}".
+                             format(allowed_characters, expected_characters))
+
+        y_pred = tf.log(tf.transpose(prediction_batch, perm=[1, 0, 2]) + 1e-8)
+        input_length = tf.to_int32(tf.squeeze(prediction_lengths, axis=[1]))
+
+        (decoded, log_prob) = tf.nn.ctc_beam_search_decoder(inputs=y_pred,
+                                                            sequence_length=input_length,
+                                                            kenlm_directory_path=str(self.kenlm_directory))
+
+        decoded_dense = single([tf.sparse_to_dense(st.indices, st.dense_shape, st.values, default_value=-1)
+                                for st in decoded])
+        return decoded_dense
+
+    def predict_with_kenlm(self, spectrograms: List[ndarray]) -> List[str]:
+        input_batch, prediction_lengths = self._input_batch_and_prediction_lengths(spectrograms)
+
+        decoded = single(backend.function(self.kenlm_net.inputs + [backend.learning_phase()], self.kenlm_net.outputs)(
+            [input_batch, self._prediction_length_batch(prediction_lengths, batch_size=len(spectrograms)),
+             self.prediction_phase_flag]))
+
+        decoded[decoded < 0] = self.grapheme_encoding.ctc_blank
+
+        return self.grapheme_encoding.decode_grapheme_batch(decoded, prediction_lengths)
+
+    def _input_batch_input(self):
+        return Input(name=Wav2Letter.InputNames.input_batch, batch_shape=self.predictive_net.input_shape)
+
     def predict(self, spectrograms: List[ndarray]) -> List[str]:
+        return self.predict_with_kenlm(spectrograms) if self.kenlm_directory else self.predict_greedily(spectrograms)
+
+    def predict_greedily(self, spectrograms: List[ndarray]) -> List[str]:
         input_batch, prediction_lengths = self._input_batch_and_prediction_lengths(spectrograms)
 
         return self.grapheme_encoding.decode_prediction_batch(self.prediction_batch(input_batch),
@@ -384,6 +449,9 @@ class Wav2Letter:
 
         return input_batch, prediction_lengths
 
+    def _prediction_length_batch(self, prediction_lengths: List[int], batch_size: int) -> ndarray:
+        return reshape(array(prediction_lengths), (batch_size, 1))
+
     def _training_input_dictionary(self, labeled_spectrogram_batch: List[LabeledSpectrogram]) -> Dict[str, ndarray]:
         spectrograms = [x.z_normalized_transposed_spectrogram() for x in labeled_spectrogram_batch]
         labels = [x.label for x in labeled_spectrogram_batch]
@@ -393,8 +461,8 @@ class Wav2Letter:
         training_phase_flag_tensor = array([True])
         return {
             Wav2Letter.InputNames.input_batch: input_batch,
-            Wav2Letter.InputNames.prediction_lengths: reshape(array(prediction_lengths),
-                                                              (len(labeled_spectrogram_batch), 1)),
+            Wav2Letter.InputNames.prediction_lengths: self._prediction_length_batch(prediction_lengths,
+                                                                                    batch_size=len(spectrograms)),
             Wav2Letter.InputNames.label_batch: self.grapheme_encoding.encode_label_batch(labels),
             Wav2Letter.InputNames.label_lengths: reshape(array([len(label) for label in labels]),
                                                          (len(labeled_spectrogram_batch), 1)),

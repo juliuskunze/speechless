@@ -1,3 +1,5 @@
 lazy
 librosa
 keras
+editdistance
+h5py

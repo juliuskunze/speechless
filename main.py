@@ -21,6 +21,7 @@ nets_base_directory = base_directory / "nets"
 recording_directory = base_directory / "recordings"
 corpus_base_directory = base_directory / "corpus"
 spectrogram_cache_base_directory = base_directory / "spectrogram-cache"
+kenlm_base_directory = base_directory / "kenlm"
 
 
 def load_cached_corpus(corpus_directory: Path) -> Corpus:
@@ -88,8 +89,9 @@ class Configuration:
     def fill_up_cache(self):
         self.batch_generator.fill_cache()
 
-    def test_best_model(self):
-        wav2letter = load_best_wav2letter_model(allowed_characters=self.allowed_characters)
+    def test_best_model(self, use_ken_lm: bool = False):
+        wav2letter = load_best_wav2letter_model(allowed_characters=self.allowed_characters,
+                                                use_ken_lm=use_ken_lm)
 
         print(wav2letter.expectations_vs_predictions(self.batch_generator.preview_batch()))
         print("Average loss: {}".format(wav2letter.loss(self.batch_generator.test_batches())))
@@ -117,7 +119,8 @@ class Configuration:
 
 def load_best_wav2letter_model(mel_frequency_count: int = 128,
                                frozen_layer_count=0,
-                               allowed_characters: List[chr] = english_frequent_characters):
+                               allowed_characters: List[chr] = english_frequent_characters,
+                               use_ken_lm: bool = False):
     from net import Wav2Letter
 
     return Wav2Letter(
@@ -126,7 +129,8 @@ def load_best_wav2letter_model(mel_frequency_count: int = 128,
         load_model_from_directory=nets_base_directory / "20170316-180957-adam-small-learning-rate-complete-95",
         load_epoch=1192,
         allowed_characters_for_loaded_model=english_frequent_characters,
-        frozen_layer_count=frozen_layer_count)
+        frozen_layer_count=frozen_layer_count,
+        kenlm_directory=(kenlm_base_directory / "english") if use_ken_lm else None)
 
 
 def record_plot_and_save() -> LabeledExample:
@@ -188,4 +192,6 @@ def predict_recording() -> None:
 
 # net = load_best_wav2letter_model().predictive_net
 
-Configuration.german().train_transfer_from_best_english_model()
+# Configuration.german().train_transfer_from_best_english_model()
+
+Configuration.english().test_best_model(use_ken_lm=True)

@@ -45,9 +45,16 @@ class GraphemeEncodingBase:
         :param prediction_lengths:
         :return:
         """
-        # TODO use beam search with a language model instead of best path.
-        return [self.decode_graphemes(list(argmax(prediction_batch[i], 1))[:prediction_lengths[i]]) for i in
-                range(prediction_batch.shape[0])]
+        return self.decode_grapheme_batch(argmax(prediction_batch, 2), prediction_lengths)
+
+    def decode_grapheme_batch(self, grapheme_batch: ndarray, prediction_lengths: List[int]) -> List[str]:
+        """
+        :param grapheme_batch: In shape (example, time).
+        :param prediction_lengths:
+        :return:
+        """
+        return [self.decode_graphemes(list(grapheme_batch[i])[:prediction_lengths[i]]) for i in
+                range(grapheme_batch.shape[0])]
 
     @abstractmethod
     def decode_grapheme(self, grapheme: int, previous_grapheme: int) -> str:
