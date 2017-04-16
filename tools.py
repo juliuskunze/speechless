@@ -31,6 +31,14 @@ def read_text(path: Path, encoding=None) -> str:
         return f.read()
 
 
+def write_text(path: Path, text: str, encoding=None):
+    """
+    Not Path.write_text for compatibility with Python 3.4.
+    """
+    with path.open(mode='w', encoding=encoding) as f:
+        f.write(text)
+
+
 def mkdir(directory: Path) -> None:
     """
     Not Path.mkdir() for compatibility with Python 3.4.

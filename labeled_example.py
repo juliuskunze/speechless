@@ -11,7 +11,7 @@ from lazy import lazy
 from numpy import ndarray, mean, std, vectorize, dot
 from typing import List, Optional, Tuple, Callable
 
-from tools import name_without_extension
+from tools import name_without_extension, mkdir, write_text
 
 
 class SpectrogramFrequencyScale(Enum):
@@ -189,9 +189,12 @@ class CachedLabeledSpectrogram(LabeledSpectrogram):
         self.spectrogram_cache_file = spectrogram_cache_directory / "{}.npy".format(original.id)
 
     def z_normalized_transposed_spectrogram(self) -> ndarray:
-        if not self.exists():
+        if not self.is_cached():
             return self._calculate_and_save_spectrogram()
 
+        return self._load_from_cache()
+
+    def _load_from_cache(self):
         try:
             return numpy.load(str(self.spectrogram_cache_file))
         except ValueError:
@@ -200,8 +203,34 @@ class CachedLabeledSpectrogram(LabeledSpectrogram):
 
     def _calculate_and_save_spectrogram(self):
         spectrogram = self.original.z_normalized_transposed_spectrogram()
-        numpy.save(str(self.spectrogram_cache_file), spectrogram)
+        self._save_to_cache(spectrogram)
         return spectrogram
 
-    def exists(self):
+    def _save_to_cache(self, spectrogram: ndarray):
+        numpy.save(str(self.spectrogram_cache_file), spectrogram)
+
+    def is_cached(self):
         return self.spectrogram_cache_file.exists()
+
+    def repair_cached_file_if_incorrect(self):
+        if not self.is_cached():
+            self._calculate_and_save_spectrogram()
+            return
+
+        from_cache = self._load_from_cache()
+        calculated = self.original.z_normalized_transposed_spectrogram()
+        try:
+            numpy.testing.assert_almost_equal(calculated, from_cache, decimal=1)
+        except AssertionError as e:
+            self.move_incorrect_cached_file_to_backup_location_and_save_error(str(e))
+            self._save_to_cache(calculated)
+
+    def move_incorrect_cached_file_to_backup_location_and_save_error(self, error_text: str):
+        parent_directory = Path(self.spectrogram_cache_file.parent)
+        incorrect_cached_backup_directory = Path(parent_directory.parent / (parent_directory.name + "-incorrect"))
+        mkdir(incorrect_cached_backup_directory)
+        incorrect_backup_file = incorrect_cached_backup_directory / self.spectrogram_cache_file.name
+        incorrect_backup_message_file = incorrect_cached_backup_directory / (
+            name_without_extension(self.spectrogram_cache_file) + "-error.txt")
+        write_text(incorrect_backup_message_file, error_text)
+        self.spectrogram_cache_file.rename(incorrect_backup_file)

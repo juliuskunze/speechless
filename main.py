@@ -20,7 +20,7 @@ tensorboard_log_base_directory = base_directory / "logs"
 nets_base_directory = base_directory / "nets"
 recording_directory = base_directory / "recordings"
 corpus_base_directory = base_directory / "corpus"
-spectrogram_cache_base_directory = base_directory / "spectrogram-cache"
+spectrogram_cache_base_directory = base_directory / "ketos-spectrogram-cache"
 kenlm_base_directory = base_directory / "kenlm"
 
 
@@ -86,8 +86,8 @@ class Configuration:
         corpus.summarize_to_csv(self.corpus_directory / "summary.csv")
         corpus.save(self.corpus_directory / "corpus.csv")
 
-    def fill_up_cache(self):
-        self.batch_generator.fill_cache()
+    def fill_cache(self, repair_incorrect: bool = False):
+        self.batch_generator.fill_cache(repair_incorrect=repair_incorrect)
 
     def test_best_model(self, use_ken_lm: bool = False):
         wav2letter = load_best_wav2letter_model(allowed_characters=self.allowed_characters,
@@ -178,7 +178,7 @@ def predict_recording() -> None:
 
 # Configuration.german(from_cached=False).summarize_and_save_corpus()
 
-# Configuration.german().fill_up_cache()
+Configuration.english().fill_cache(repair_incorrect=True)
 
 # Configuration.german().test_best_model()
 
@@ -192,6 +192,6 @@ def predict_recording() -> None:
 
 # net = load_best_wav2letter_model().predictive_net
 
-# Configuration.german().train_transfer_from_best_english_model()
+# Configuration.german().train_transfer_from_best_english_model(trainable_layer_count=2)
 
-Configuration.english().test_best_model()
+# Configuration.english().test_best_model()

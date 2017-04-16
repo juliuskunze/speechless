@@ -158,6 +158,10 @@ def _cache_spectrogram(labeled_spectrogram: CachedLabeledSpectrogram) -> None:
     labeled_spectrogram.z_normalized_transposed_spectrogram()
 
 
+def _repair_cached_spectrogram_if_incorrect(labeled_spectrogram: CachedLabeledSpectrogram) -> None:
+    labeled_spectrogram.repair_cached_file_if_incorrect()
+
+
 class LabeledSpectrogramBatchGenerator:
     def __init__(self, corpus: Corpus, spectrogram_cache_directory: Path, batch_size: int = 64):
         mkdir(spectrogram_cache_directory)
@@ -184,18 +188,18 @@ class LabeledSpectrogramBatchGenerator:
     def test_batches(self) -> Iterable[List[LabeledSpectrogram]]:
         return paginate(self.labeled_test_spectrograms, self.batch_size)
 
-    def fill_cache(self) -> None:
+    def fill_cache(self, repair_incorrect: bool = False) -> None:
         with Pool(processes=multiprocessing.cpu_count()) as pool:
             total = len(self.labeled_spectrograms)
-            to_calculate = [s for s in self.labeled_spectrograms if not s.exists()]
+            not_yet_cached = [s for s in self.labeled_spectrograms if not s.is_cached()]
 
-            print("Filling cache with {} spectrograms: {} already cached, {} yet to calculate.".format(
-                total, total - len(to_calculate), len(to_calculate)))
-            print([str(e.spectrogram_cache_file) for e in to_calculate])
+            to_calculate = self.labeled_spectrograms if repair_incorrect else not_yet_cached
+
+            print("Filling cache with {} spectrograms: {} already cached, {} to calculate.".format(
+                total, total - len(not_yet_cached), len(to_calculate)))
             for index, labeled_spectrogram in enumerate(to_calculate):
-                if index == 0:
-                    print(labeled_spectrogram.spectrogram_cache_file)
-                pool.apply_async(_cache_spectrogram, (labeled_spectrogram,))
+                pool.apply_async(_repair_cached_spectrogram_if_incorrect if repair_incorrect else _cache_spectrogram,
+                                 (labeled_spectrogram,))
 
             pool.close()
             pool.join()

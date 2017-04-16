@@ -334,7 +334,8 @@ class Wav2Letter:
 
         prediction_batch, prediction_lengths = args
         allowed_characters = self.grapheme_encoding.allowed_characters
-        expected_characters = list(single(read_text(self.kenlm_directory / "vocabulary", encoding='utf8').splitlines()))
+        expected_characters = list(
+            single(read_text(self.kenlm_directory / "vocabulary", encoding='utf8').splitlines()).lower())
         if allowed_characters != expected_characters:
             raise ValueError("Allowed characters {} differ from those expected by kenlm decoder: {}".
                              format(allowed_characters, expected_characters))
