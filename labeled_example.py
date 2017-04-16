@@ -161,7 +161,7 @@ class LabeledExample(LabeledSpectrogram):
         return self.spectrogram().shape[1]
 
     def time_step_rate(self) -> float:
-        return self.time_step_count() / self.duration_in_s()
+        return self.time_step_count() / self.duration_in_s
 
     @staticmethod
     def _power_level_from_power_spectrogram(spectrogram: ndarray) -> ndarray:

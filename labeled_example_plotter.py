@@ -53,7 +53,7 @@ class LabeledExamplePlotter:
         mel_frequencies = self.example.mel_frequencies()
         plt.imshow(
             spectrogram, cmap='gist_heat', origin='lower', aspect='auto', extent=
-            [0, self.example.duration_in_s(),
+            [0, self.example.duration_in_s,
              librosa.hz_to_mel(mel_frequencies[0])[0] if use_mel else 0,
              librosa.hz_to_mel(mel_frequencies[-1])[0] if use_mel else self.example.highest_detectable_frequency()])
 

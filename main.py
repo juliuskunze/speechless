@@ -194,4 +194,4 @@ def predict_recording() -> None:
 
 # Configuration.german().train_transfer_from_best_english_model()
 
-Configuration.english().test_best_model(use_ken_lm=True)
+Configuration.english().test_best_model()
