@@ -20,7 +20,7 @@ tensorboard_log_base_directory = base_directory / "logs"
 nets_base_directory = base_directory / "nets"
 recording_directory = base_directory / "recordings"
 corpus_base_directory = base_directory / "corpus"
-spectrogram_cache_base_directory = base_directory / "ketos-spectrogram-cache"
+spectrogram_cache_base_directory = base_directory / "spectrogram-cache"
 kenlm_base_directory = base_directory / "kenlm"
 
 
@@ -178,7 +178,7 @@ def predict_recording() -> None:
 
 # Configuration.german(from_cached=False).summarize_and_save_corpus()
 
-Configuration.english().fill_cache(repair_incorrect=True)
+Configuration.german().fill_cache(repair_incorrect=True)
 
 # Configuration.german().test_best_model()
 
@@ -194,4 +194,4 @@ Configuration.english().fill_cache(repair_incorrect=True)
 
 # Configuration.german().train_transfer_from_best_english_model(trainable_layer_count=2)
 
-# Configuration.english().test_best_model()
+# Configuration.english().test_best_model(use_ken_lm=True)

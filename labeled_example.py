@@ -92,7 +92,6 @@ class LabeledExample(LabeledSpectrogram):
     def tag_count(self, tag: str) -> int:
         return self.original_label_with_tags.count(tag)
 
-    @lazy
     def raw_audio(self) -> ndarray:
         y, sample_rate = librosa.load(str(self.audio_file), sr=self.sample_rate)
 
@@ -110,7 +109,7 @@ class LabeledExample(LabeledSpectrogram):
         return abs(self._complex_spectrogram())
 
     def _complex_spectrogram(self) -> ndarray:
-        return librosa.stft(y=self.raw_audio, n_fft=self.fourier_window_length, hop_length=self.hop_length)
+        return librosa.stft(y=self.raw_audio(), n_fft=self.fourier_window_length, hop_length=self.hop_length)
 
     def mel_frequencies(self) -> List[float]:
         # according to librosa.filters.mel code

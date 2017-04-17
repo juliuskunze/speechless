@@ -13,7 +13,7 @@ class LabeledExampleTest(TestCase):
     def test(self):
         example = corpus.examples[0]
         mel_power_spectrogram = librosa.feature.melspectrogram(
-            y=example.raw_audio, n_fft=example.fourier_window_length, hop_length=example.hop_length,
+            y=example.raw_audio(), n_fft=example.fourier_window_length, hop_length=example.hop_length,
             sr=example.sample_rate)
 
         self.assertTrue(np.array_equal(mel_power_spectrogram,
