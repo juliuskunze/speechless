@@ -76,7 +76,7 @@ class ExpectationsVsPredictions:
         return average([r.loss for r in self.results])
 
     def __str__(self):
-        return "\n\n".join(str(r) for r in self.results) + "\n\n" + self.summary_line()
+        return "\n\n".join(str(r) for r in self.results) + "\n\n" + self.summary_line() + "\n\n"
 
     def summary_line(self):
         return "Average: {:.1f} letter errors ({:.2f}%), {:.1f} word errors ({:.2f}%), loss {}.".format(
@@ -94,7 +94,7 @@ class ExpectationsVsPredictionsInBatches(ExpectationsVsPredictions):
                           for result in batch.results])
 
     def __str__(self):
-        return "All batches: " + self.summary_line()
+        return "All batches: " + self.summary_line() + "\n\n"
 
 
 class Wav2Letter:
@@ -118,13 +118,16 @@ class Wav2Letter:
                  load_epoch: Optional[int] = None,
                  allowed_characters_for_loaded_model: Optional[List[chr]] = None,
                  frozen_layer_count: int = 0,
+                 reinitialize_trainable_loaded_layers: bool = False,
                  use_asg: bool = False,
                  asg_transition_probabilities: Optional[ndarray] = None,
                  asg_initial_probabilities: Optional[ndarray] = None,
                  kenlm_directory: Path = None):
 
+        if frozen_layer_count > 0 and load_model_from_directory is None:
+            raise ValueError("Layers cannot be frozen if model is trained from scratch.")
+
         self.kenlm_directory = kenlm_directory
-        self.allowed_characters_for_loaded_model = allowed_characters_for_loaded_model
         self.grapheme_encoding = AsgGraphemeEncoding(allowed_characters=allowed_characters) \
             if use_asg else CtcGraphemeEncoding(allowed_characters=allowed_characters)
 
@@ -149,7 +152,6 @@ class Wav2Letter:
         self.prediction_phase_flag = 0.
 
         if self.kenlm_directory is not None:
-            allowed_characters = self.grapheme_encoding.allowed_characters
             expected_characters = list(
                 single(read_text(self.kenlm_directory / "vocabulary", encoding='utf8').splitlines()).lower())
 
@@ -158,50 +160,64 @@ class Wav2Letter:
                                  format(allowed_characters, expected_characters))
 
         if load_model_from_directory is not None:
-            if self.allowed_characters_for_loaded_model is None:
-                self.predictive_net.load_weights(str(load_model_from_directory / self.model_file_name(load_epoch)))
-            else:
-                loaded_allowed_character_count = len(allowed_characters_for_loaded_model)
-                extra_allowed_character_count = len(allowed_characters) - loaded_allowed_character_count
+            self._load_weights(
+                allowed_characters_for_loaded_model, load_epoch, load_model_from_directory,
+                loaded_first_layers_count=frozen_layer_count if reinitialize_trainable_loaded_layers else None)
 
-                if extra_allowed_character_count < 0 or \
-                                allowed_characters[
-                                :loaded_allowed_character_count] != allowed_characters_for_loaded_model:
-                    raise ValueError(
-                        "Allowed characters must begin with the allowed characters for loaded model in the same order.")
+    def _load_weights(self, allowed_characters_for_loaded_model: List[chr], load_epoch: int,
+                      load_model_from_directory: Path, loaded_first_layers_count: Optional[int] = None):
+        if allowed_characters_for_loaded_model is None:
+            self.predictive_net.load_weights(str(load_model_from_directory / self.model_file_name(load_epoch)))
+        else:
+            layer_count = len(self.predictive_net.layers)
 
-                original_wav2letter = Wav2Letter(input_size_per_time_step=input_size_per_time_step,
-                                                 allowed_characters=allowed_characters_for_loaded_model,
-                                                 use_raw_wave_input=use_raw_wave_input,
-                                                 activation=activation,
-                                                 output_activation=output_activation,
-                                                 optimizer=optimizer,
-                                                 dropout=dropout,
-                                                 load_model_from_directory=load_model_from_directory,
-                                                 load_epoch=load_epoch,
-                                                 frozen_layer_count=frozen_layer_count,
-                                                 use_asg=use_asg,
-                                                 asg_initial_probabilities=asg_initial_probabilities,
-                                                 asg_transition_probabilities=asg_transition_probabilities)
+            if loaded_first_layers_count is None:
+                loaded_first_layers_count = layer_count
 
-                for index, layer in enumerate(self.predictive_net.layers):
-                    original_weights, original_biases = original_wav2letter.predictive_net.layers[index].get_weights()
+            loaded_allowed_character_count = len(allowed_characters_for_loaded_model)
+            extra_allowed_character_count = len(
+                self.grapheme_encoding.allowed_characters) - loaded_allowed_character_count
 
-                    if index == len(self.predictive_net.layers) - 1:
-                        original_shape = original_weights.shape
-                        grapheme_axis = 2
-                        to_insert = zeros((original_shape[0], original_shape[1], extra_allowed_character_count))
-                        original_weights = insert(
-                            original_weights,
-                            axis=grapheme_axis,
-                            obj=[len(self.allowed_characters_for_loaded_model)],
-                            values=to_insert)
+            if extra_allowed_character_count < 0 or self.grapheme_encoding.allowed_characters[
+                                                    :loaded_allowed_character_count] != allowed_characters_for_loaded_model:
+                raise ValueError(
+                    "Allowed characters must begin with the allowed characters for loaded model in the same order.")
 
-                        original_biases = insert(
-                            original_biases, original_biases.shape[0] - 1,
-                            zeros((extra_allowed_character_count,)), axis=0)
+            original_wav2letter = Wav2Letter(input_size_per_time_step=self.input_size_per_time_step,
+                                             allowed_characters=allowed_characters_for_loaded_model,
+                                             use_raw_wave_input=self.use_raw_wave_input,
+                                             activation=self.activation,
+                                             output_activation=self.output_activation,
+                                             optimizer=self.optimizer,
+                                             dropout=self.dropout,
+                                             load_model_from_directory=load_model_from_directory,
+                                             load_epoch=load_epoch,
+                                             frozen_layer_count=self.frozen_layer_count,
+                                             use_asg=self.use_asg,
+                                             asg_initial_probabilities=self.asg_initial_probabilities,
+                                             asg_transition_probabilities=self.asg_transition_probabilities)
 
-                    layer.set_weights([original_weights, original_biases])
+            print("Loading first {} layers, reinitializing the last {}.".format(
+                loaded_first_layers_count, layer_count - loaded_first_layers_count))
+
+            for index, layer in enumerate(self.predictive_net.layers[:loaded_first_layers_count]):
+                original_weights, original_biases = original_wav2letter.predictive_net.layers[index].get_weights()
+
+                if index == len(self.predictive_net.layers) - 1:
+                    original_shape = original_weights.shape
+                    grapheme_axis = 2
+                    to_insert = zeros((original_shape[0], original_shape[1], extra_allowed_character_count))
+                    original_weights = insert(
+                        original_weights,
+                        axis=grapheme_axis,
+                        obj=[len(allowed_characters_for_loaded_model)],
+                        values=to_insert)
+
+                    original_biases = insert(
+                        original_biases, original_biases.shape[0] - 1,
+                        zeros((extra_allowed_character_count,)), axis=0)
+
+                layer.set_weights([original_weights, original_biases])
 
     @staticmethod
     def _default_asg_transition_probabilities(grapheme_set_size: int) -> ndarray:

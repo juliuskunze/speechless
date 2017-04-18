@@ -93,17 +93,20 @@ class Configuration:
         print(wav2letter.test_and_predict_batch(self.batch_generator.preview_batch()))
         print(wav2letter.test_and_predict_batches(self.batch_generator.test_batches()))
 
-    def train_transfer_from_best_english_model(self, trainable_layer_count: int = 1):
+    def train_transfer_from_best_english_model(self, trainable_layer_count: int = 1,
+                                               reinitialize_trainable_loaded_layers: bool = False):
         from net_with_corpus import Wav2LetterWithCorpus
 
         mel_frequency_count = 128
         batches_per_epoch = 100
         layer_count = 11
         frozen_layer_count = layer_count - trainable_layer_count
-        run_name = timestamp() + "-adam-small-learning-rate-transfer-to-{}-freeze-{}".format(self.name,
-                                                                                             frozen_layer_count)
+        run_name = timestamp() + "-adam-small-learning-rate-transfer-to-{}-freeze-{}{}".format(
+            self.name, frozen_layer_count, "-reinitialize" if reinitialize_trainable_loaded_layers else "")
 
-        wav2letter = self.load_best_wav2letter_model(mel_frequency_count, frozen_layer_count=frozen_layer_count)
+        wav2letter = self.load_best_wav2letter_model(
+            mel_frequency_count, frozen_layer_count=frozen_layer_count,
+            reinitialize_trainable_loaded_layers=reinitialize_trainable_loaded_layers)
 
         wav2letter_with_corpus = Wav2LetterWithCorpus(wav2letter, self.corpus,
                                                       spectrogram_cache_directory=self.spectrogram_cache_directory)
@@ -115,9 +118,10 @@ class Configuration:
     def load_best_wav2letter_model(self,
                                    mel_frequency_count: int = 128,
                                    frozen_layer_count=0,
-                                   load_name: str = "20170316-180957-adam-small-learning-rate-complete-95",
-                                   load_epoch=1192,
-                                   use_ken_lm: bool = False):
+                                   load_name: str = "20170314-134351-adam-small-learning-rate-complete-95",
+                                   load_epoch: int = 1689,
+                                   use_ken_lm: bool = False,
+                                   reinitialize_trainable_loaded_layers: bool = False):
         from net import Wav2Letter
 
         return Wav2Letter(
@@ -127,17 +131,18 @@ class Configuration:
             load_epoch=load_epoch,
             allowed_characters_for_loaded_model=english_frequent_characters,
             frozen_layer_count=frozen_layer_count,
-            kenlm_directory=(kenlm_base_directory / "english") if use_ken_lm else None)
+            kenlm_directory=(kenlm_base_directory / "english") if use_ken_lm else None,
+            reinitialize_trainable_loaded_layers=reinitialize_trainable_loaded_layers)
 
     def test_best_model(self, use_ken_lm: bool = False):
         self.test_model(self.load_best_wav2letter_model(use_ken_lm=use_ken_lm))
 
-    def load_original_best_model(self):
+    def load_best_model_trained_in_one_run(self):
         return self.load_best_wav2letter_model(
-            load_name="20170314-134351-adam-small-learning-rate-complete-95", load_epoch=1689)
+            load_name="20170316-180957-adam-small-learning-rate-complete-95", load_epoch=1192)
 
-    def test_original_best_model(self):
-        self.test_model(self.load_original_best_model())
+    def test_best_model_trained_in_one_run(self):
+        self.test_model(self.load_best_model_trained_in_one_run())
 
 
 def record_plot_and_save() -> LabeledExample:
@@ -196,6 +201,7 @@ def predict_recording() -> None:
 
 # net = Configuration.english().load_best_wav2letter_model().predictive_net
 
-Configuration.german().train_transfer_from_best_english_model(trainable_layer_count=3)
+Configuration.german().train_transfer_from_best_english_model(trainable_layer_count=3,
+                                                              reinitialize_trainable_loaded_layers=True)
 
 # Configuration.english().test_best_model()
