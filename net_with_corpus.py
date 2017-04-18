@@ -21,4 +21,4 @@ class Wav2LetterWithCorpus:
                               batches_per_epoch=batches_per_epoch)
 
     def test(self):
-        print(self.wav2letter.loss(self.batch_generator.test_batches()))
+        print(self.wav2letter.test_and_predict_batches(self.batch_generator.test_batches()))

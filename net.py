@@ -2,6 +2,7 @@ from functools import reduce
 from pathlib import Path
 
 import editdistance
+import numpy
 from keras import backend
 from keras.callbacks import Callback, TensorBoard
 from keras.engine import Input, Layer, Model
@@ -18,7 +19,8 @@ from tools import average, mkdir, single, read_text
 
 
 class ExpectationVsPrediction:
-    def __init__(self, expected: str, predicted: str):
+    def __init__(self, expected: str, predicted: str, loss: float):
+        self.loss = loss
         self.expected = expected
         self.predicted = predicted
         self.expected_letter_count = len(self.expected)
@@ -42,10 +44,11 @@ class ExpectationVsPrediction:
         return self.word_error_count / self.expected_word_count
 
     def __str__(self):
-        return 'Expected:  "{}"\nPredicted: "{}"\nErrors: {} letters ({}%), {} words ({}%).'.format(
+        return 'Expected:  "{}"\nPredicted: "{}"\nErrors: {} letters ({}%), {} words ({}%), loss: {}.'.format(
             self.expected, self.predicted,
             self.letter_error_count, round(self.letter_error_rate * 100),
-            self.word_error_count, round(self.word_error_rate * 100))
+            self.word_error_count, round(self.word_error_rate * 100),
+            self.loss)
 
 
 class ExpectationsVsPredictions:
@@ -68,13 +71,30 @@ class ExpectationsVsPredictions:
     def average_word_error_rate(self) -> float:
         return average([r.word_error_rate for r in self.results])
 
+    @lazy
+    def average_loss(self) -> float:
+        return average([r.loss for r in self.results])
+
     def __str__(self):
         return "\n\n".join(str(r) for r in self.results) + "\n\n" + self.summary_line()
 
     def summary_line(self):
-        return "Errors on average: {:.1f} letters ({:.2f}%), {:.1f} words ({:.2f}%).".format(
+        return "Average: {:.1f} letter errors ({:.2f}%), {:.1f} word errors ({:.2f}%), loss {}.".format(
             self.average_letter_error_count, self.average_letter_error_rate * 100,
-            self.average_word_error_count, self.average_word_error_rate * 100)
+            self.average_word_error_count, self.average_word_error_rate * 100,
+            self.average_loss)
+
+
+class ExpectationsVsPredictionsInBatches(ExpectationsVsPredictions):
+    def __init__(self, result_batches: List[ExpectationsVsPredictions]):
+        self.result_batches = result_batches
+
+        super().__init__([result
+                          for batch in result_batches
+                          for result in batch.results])
+
+    def __str__(self):
+        return "All batches: " + self.summary_line()
 
 
 class Wav2Letter:
@@ -127,6 +147,15 @@ class Wav2Letter:
         self.dropout = dropout
         self.predictive_net = self.create_predictive_net()
         self.prediction_phase_flag = 0.
+
+        if self.kenlm_directory is not None:
+            allowed_characters = self.grapheme_encoding.allowed_characters
+            expected_characters = list(
+                single(read_text(self.kenlm_directory / "vocabulary", encoding='utf8').splitlines()).lower())
+
+            if allowed_characters != expected_characters:
+                raise ValueError("Allowed characters {} differ from those expected by kenlm decoder: {}".
+                                 format(allowed_characters, expected_characters))
 
         if load_model_from_directory is not None:
             if self.allowed_characters_for_loaded_model is None:
@@ -262,9 +291,8 @@ class Wav2Letter:
     @lazy
     def loss_net(self) -> Model:
         """Returns the network that yields a loss given both input spectrograms and labels. Used for training."""
-        input_batch = self._input_batch_input()
+        input_batch = self._input_batch_input
         label_batch = Input(name=Wav2Letter.InputNames.label_batch, shape=(None,), dtype='int32')
-        prediction_lengths = self._prediction_lengths_input()
         label_lengths = Input(name=Wav2Letter.InputNames.label_lengths, shape=(1,), dtype='int64')
 
         asg_transition_probabilities_variable = backend.variable(value=self.asg_transition_probabilities,
@@ -284,14 +312,16 @@ class Wav2Letter:
         # This loss layer is placed atop the predictive network and provided with additional arguments,
         # namely the label batch and prediction/label sequence lengths:
         loss = loss_layer(
-            [self.predictive_net(input_batch), label_batch, prediction_lengths, label_lengths])
+            [self.predictive_net(input_batch), label_batch, self._prediction_lengths_input, label_lengths])
 
-        loss_net = Model(inputs=[input_batch, label_batch, prediction_lengths, label_lengths], outputs=[loss])
+        loss_net = Model(inputs=[input_batch, label_batch, self._prediction_lengths_input, label_lengths],
+                         outputs=[loss])
         # Since loss is already calculated in the last layer of the net, we just pass through the results here.
         # The loss dummy labels have to be given to satify the Keras API.
         loss_net.compile(loss=lambda dummy_labels, ctc_loss: ctc_loss, optimizer=self.optimizer)
         return loss_net
 
+    @lazy
     def _prediction_lengths_input(self):
         return Input(name=Wav2Letter.InputNames.prediction_lengths, shape=(1,), dtype='int64')
 
@@ -308,101 +338,126 @@ class Wav2Letter:
                                       input_length=prediction_lengths, label_length=label_lengths)
 
     @lazy
-    def kenlm_net(self):
-        input_batch = self._input_batch_input()
-        prediction_lengths = self._prediction_lengths_input()
+    def decoding_net(self):
+        decoding_layer = Lambda(self._decode_lambda, name='kenlm_decode')
 
-        decoding_layer = Lambda(self._kenlm_decode_lambda, name='kenlm_decode')
+        prediction_batch = self.predictive_net(self._input_batch_input)
+        decoded = decoding_layer([prediction_batch, self._prediction_lengths_input])
 
-        prediction_batch = self.predictive_net(input_batch)
-        decoded = decoding_layer([prediction_batch, prediction_lengths])
+        return Model(inputs=[self._input_batch_input, self._prediction_lengths_input], outputs=[decoded])
 
-        return Model(inputs=[input_batch, prediction_lengths], outputs=[decoded])
-
-    def _kenlm_decode_lambda(self, args):
+    def _decode_lambda(self, args):
+        """
+        Decoding within tensorflow graph.
+        In case kenlm_directory is specified, a modified version of tensorflow 
+        (available at https://github.com/timediv/tensorflow-with-kenlm) 
+        is needed to run that extends ctc_decode to use a kenlm decoder.
+        :return: 
+            Most probable decoded sequence.  Important: blank labels are returned as `-1`. 
+        """
         import tensorflow as tf
 
-        """
-        Modified version of ctc_decode employing a kenlm decoder. 
-        Needs a modified version of tensorflow available at https://github.com/timediv/tensorflow-with-kenlm to run.
-            # Returns
-                Tuple:
-                    List: Most probable decoded sequence (as a single element of a list). 
-                    Important: blank labels are returned as `-1`. 
-                    Tensor `(1, )` that contains the log probability of each decoded sequence.
-        """
-
         prediction_batch, prediction_lengths = args
-        allowed_characters = self.grapheme_encoding.allowed_characters
-        expected_characters = list(
-            single(read_text(self.kenlm_directory / "vocabulary", encoding='utf8').splitlines()).lower())
-        if allowed_characters != expected_characters:
-            raise ValueError("Allowed characters {} differ from those expected by kenlm decoder: {}".
-                             format(allowed_characters, expected_characters))
 
-        y_pred = tf.log(tf.transpose(prediction_batch, perm=[1, 0, 2]) + 1e-8)
-        input_length = tf.to_int32(tf.squeeze(prediction_lengths, axis=[1]))
+        log_prediction_batch = tf.log(tf.transpose(prediction_batch, perm=[1, 0, 2]) + 1e-8)
+        prediction_length_batch = tf.to_int32(tf.squeeze(prediction_lengths, axis=[1]))
 
-        (decoded, log_prob) = tf.nn.ctc_beam_search_decoder(inputs=y_pred,
-                                                            sequence_length=input_length,
-                                                            kenlm_directory_path=str(self.kenlm_directory))
+        (decoded, log_prob) = self.ctc_get_decoded_and_log_probability_batch(log_prediction_batch,
+                                                                             prediction_length_batch)
 
-        decoded_dense = single([tf.sparse_to_dense(st.indices, st.dense_shape, st.values, default_value=-1)
-                                for st in decoded])
-        return decoded_dense
+        return single([tf.sparse_to_dense(st.indices, st.dense_shape, st.values, default_value=-1) for st in decoded])
 
-    def predict_with_kenlm(self, spectrograms: List[ndarray]) -> List[str]:
-        input_batch, prediction_lengths = self._input_batch_and_prediction_lengths(spectrograms)
+    def ctc_get_decoded_and_log_probability_batch(self, log_prediction_batch, prediction_length_batch):
+        import tensorflow as tf
 
-        decoded = single(backend.function(self.kenlm_net.inputs + [backend.learning_phase()], self.kenlm_net.outputs)(
-            [input_batch, self._prediction_length_batch(prediction_lengths, batch_size=len(spectrograms)),
-             self.prediction_phase_flag]))
+        # The following extract from the the ctc_beam_search_decoder documentation seems to be misleading:
+        # "The `ctc_greedy_decoder` is a special case of the
+        # `ctc_beam_search_decoder` with `top_paths=1` and `beam_width=1` (but
+        # that decoder is faster for this special case)."
 
-        decoded[decoded < 0] = self.grapheme_encoding.ctc_blank
+        # Instead, the following results were observed when decoding "AA<ctc_blank>AA":
+        #                                                           merge_repeated=True         merge_repeated=False
+        # tf.nn.ctc_beam_search_decoder(top_paths=1, beam_width=1)  "A"                         "AA"
+        # tf.nn.ctc_greedy_decoder()                                "AA"                        "AAAA"
 
-        return self.grapheme_encoding.decode_grapheme_batch(decoded, prediction_lengths)
+        # This is confusing at minimum and probably not intended behaviour.
 
+        # Because "AA" is desired, ctc_beam_search_decoder is called with merge_repeated=False, while
+        # ctc_greedy_decoder is called with merge_repeated=True:
+        if self.kenlm_directory is not None:
+            return tf.nn.ctc_beam_search_decoder(inputs=log_prediction_batch,
+                                                 sequence_length=prediction_length_batch,
+                                                 merge_repeated=False,
+                                                 kenlm_directory_path=str(self.kenlm_directory))
+        else:
+            return tf.nn.ctc_greedy_decoder(inputs=log_prediction_batch,
+                                            sequence_length=prediction_length_batch)
+
+    def test_and_predict_batch(self, labeled_spectrogram_batch: List[LabeledSpectrogram]) -> ExpectationsVsPredictions:
+        input_by_name, dummy_labels = self._inputs_for_loss_net(labeled_spectrogram_batch)
+
+        f = backend.function(self.loss_net.inputs + [backend.learning_phase()],
+                             [single(self.decoding_net.outputs), single(self.loss_net.outputs)])
+
+        predicted_graphemes, loss_batch = f(
+            [input_by_name[input.name.split(":")[0]] for input in self.loss_net.inputs] + [self.prediction_phase_flag])
+
+        # blank labels are returned as -1 by tensorflow:
+        predicted_graphemes[predicted_graphemes < 0] = self.grapheme_encoding.ctc_blank
+
+        prediction_lengths = list(numpy.squeeze(input_by_name[Wav2Letter.InputNames.prediction_lengths], axis=1))
+        losses = list(numpy.squeeze(loss_batch, axis=1))
+
+        # merge was already done by tensorflow, so we disable it here:
+        predictions = self.grapheme_encoding.decode_grapheme_batch(predicted_graphemes, prediction_lengths,
+                                                                   merge_repeated=False)
+
+        return ExpectationsVsPredictions(
+            [ExpectationVsPrediction(predicted=predicted, expected=expected, loss=loss) for predicted, expected, loss in
+             zip(predictions, (e.label for e in labeled_spectrogram_batch), losses)])
+
+    @lazy
     def _input_batch_input(self):
         return Input(name=Wav2Letter.InputNames.input_batch, batch_shape=self.predictive_net.input_shape)
 
-    def predict(self, spectrograms: List[ndarray]) -> List[str]:
-        return self.predict_with_kenlm(spectrograms) if self.kenlm_directory else self.predict_greedily(spectrograms)
-
-    def predict_greedily(self, spectrograms: List[ndarray]) -> List[str]:
+    def predict_batch_greedily(self, spectrograms: List[ndarray]) -> List[str]:
         input_batch, prediction_lengths = self._input_batch_and_prediction_lengths(spectrograms)
 
         return self.grapheme_encoding.decode_prediction_batch(self.prediction_batch(input_batch),
                                                               prediction_lengths=prediction_lengths)
 
-    def predict_single(self, spectrogram: ndarray) -> str:
-        return self.predict([spectrogram])[0]
+    def test_and_predict(self, labeled_spectrogram: LabeledSpectrogram) -> ExpectationVsPrediction:
+        return single(self.test_and_predict_batch([labeled_spectrogram]).results)
 
-    def loss(self, labeled_spectrogram_batches: Iterable[List[LabeledSpectrogram]]):
-        inputs = self._generator(labeled_spectrogram_batches)
+    def predict(self, labeled_spectrogram: LabeledSpectrogram) -> str:
+        return self.test_and_predict(labeled_spectrogram).predicted
 
-        def print_and_get_batch_loss(x, y):
-            loss = self.loss_net.evaluate(x, y, batch_size=y.shape[0])
-
-            print("Batch loss: " + str(loss))
-
-            return loss
-
-        return average([print_and_get_batch_loss(x, y) for x, y in inputs])
-
-    def _generator(self, labeled_spectrogram_batches: Iterable[List[LabeledSpectrogram]]) -> Iterable[
+    def _loss_inputs_generator(self, labeled_spectrogram_batches: Iterable[List[LabeledSpectrogram]]) -> Iterable[
         Tuple[Dict, ndarray]]:
-        for index, labeled_spectrogram_batch in enumerate(labeled_spectrogram_batches):
-            batch_size = len(labeled_spectrogram_batch)
-            dummy_labels_for_dummy_loss_function = zeros((batch_size,))
-            training_input_dictionary = self._training_input_dictionary(
-                labeled_spectrogram_batch=labeled_spectrogram_batch)
-            yield (training_input_dictionary, dummy_labels_for_dummy_loss_function)
+        for labeled_spectrogram_batch in labeled_spectrogram_batches:
+            yield self._inputs_for_loss_net(labeled_spectrogram_batch)
 
-    def expectations_vs_predictions(
-            self, labeled_spectrogram_batch: List[LabeledSpectrogram]) -> ExpectationsVsPredictions:
-        return ExpectationsVsPredictions([ExpectationVsPrediction(expected, predicted) for expected, predicted in zip(
-            (s.label for s in labeled_spectrogram_batch),
-            self.predict([s.z_normalized_transposed_spectrogram() for s in labeled_spectrogram_batch]))])
+    def _inputs_for_loss_net(self, labeled_spectrogram_batch: List[LabeledSpectrogram]) -> Tuple[
+        Dict[str, ndarray], ndarray]:
+        batch_size = len(labeled_spectrogram_batch)
+        dummy_labels_for_dummy_loss_function = zeros((batch_size,))
+        training_input_dictionary = self._input_dictionary_for_loss_net(
+            labeled_spectrogram_batch=labeled_spectrogram_batch)
+        return training_input_dictionary, dummy_labels_for_dummy_loss_function
+
+    def test_and_predict_batches(self, labeled_spectrogram_batches: Iterable[
+        List[LabeledSpectrogram]]) -> ExpectationsVsPredictionsInBatches:
+
+        def test_and_predict_batch_with_status(index: int,
+                                               batch: List[LabeledSpectrogram]) -> ExpectationsVsPredictions:
+            result = self.test_and_predict_batch(batch)
+
+            print(str(result) + " (batch {})".format(index))
+
+            return result
+
+        return ExpectationsVsPredictionsInBatches([test_and_predict_batch_with_status(index, batch)
+                                                   for index, batch in enumerate(labeled_spectrogram_batches)])
 
     def train(self,
               labeled_spectrogram_batches: Iterable[List[LabeledSpectrogram]],
@@ -410,11 +465,14 @@ class Wav2Letter:
               tensor_board_log_directory: Path,
               net_directory: Path,
               batches_per_epoch: int):
-        self.loss_net.fit_generator(self._generator(labeled_spectrogram_batches), epochs=100000000,
+
+        print_preview_batch = lambda: print(self.test_and_predict_batch(preview_labeled_spectrogram_batch))
+
+        print_preview_batch()
+        self.loss_net.fit_generator(self._loss_inputs_generator(labeled_spectrogram_batches), epochs=100000000,
                                     steps_per_epoch=batches_per_epoch,
                                     callbacks=self.create_callbacks(
-                                        callback=lambda: print(self.expectations_vs_predictions(
-                                            preview_labeled_spectrogram_batch)),
+                                        callback=print_preview_batch,
                                         tensor_board_log_directory=tensor_board_log_directory,
                                         net_directory=net_directory),
                                     initial_epoch=self.load_epoch if (self.load_epoch is not None) else 0)
@@ -453,7 +511,7 @@ class Wav2Letter:
     def _prediction_length_batch(self, prediction_lengths: List[int], batch_size: int) -> ndarray:
         return reshape(array(prediction_lengths), (batch_size, 1))
 
-    def _training_input_dictionary(self, labeled_spectrogram_batch: List[LabeledSpectrogram]) -> Dict[str, ndarray]:
+    def _input_dictionary_for_loss_net(self, labeled_spectrogram_batch: List[LabeledSpectrogram]) -> Dict[str, ndarray]:
         spectrograms = [x.z_normalized_transposed_spectrogram() for x in labeled_spectrogram_batch]
         labels = [x.label for x in labeled_spectrogram_batch]
         input_batch, prediction_lengths = self._input_batch_and_prediction_lengths(spectrograms)

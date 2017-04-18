@@ -9,7 +9,7 @@ class CtcGraphemeEncodingTests(TestCase):
     def test_encode(self):
         g = CtcGraphemeEncoding()
         label = "she wasn't three abcxyz"
-        self.assertEqual(label, g.decode_grouped_graphemes(g.encode(label)))
+        self.assertEqual(label, g.decode_graphemes(g.encode(label), merge_repeated=False))
 
     def test_decode(self):
         g = CtcGraphemeEncoding()

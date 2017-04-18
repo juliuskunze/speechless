@@ -35,9 +35,12 @@ class GraphemeEncodingBase:
 
         return label_batch
 
-    def decode_graphemes(self, graphemes: List[int]) -> str:
-        grouped_graphemes = [k for k, g in groupby(graphemes)]
-        return self.decode_grouped_graphemes(grouped_graphemes)
+    def decode_graphemes(self, graphemes: List[int], merge_repeated: bool = True) -> str:
+        if merge_repeated:
+            graphemes = [k for k, g in groupby(graphemes)]
+        return "".join([self.decode_grapheme(grapheme,
+                                             previous_grapheme=graphemes[index - 1] if index > 0 else None)
+                        for index, grapheme in enumerate(graphemes)])
 
     def decode_prediction_batch(self, prediction_batch: ndarray, prediction_lengths: List[int]) -> List[str]:
         """
@@ -47,23 +50,19 @@ class GraphemeEncodingBase:
         """
         return self.decode_grapheme_batch(argmax(prediction_batch, 2), prediction_lengths)
 
-    def decode_grapheme_batch(self, grapheme_batch: ndarray, prediction_lengths: List[int]) -> List[str]:
+    def decode_grapheme_batch(self, grapheme_batch: ndarray, prediction_lengths: List[int],
+                              merge_repeated: bool = True) -> List[str]:
         """
         :param grapheme_batch: In shape (example, time).
         :param prediction_lengths:
         :return:
         """
-        return [self.decode_graphemes(list(grapheme_batch[i])[:prediction_lengths[i]]) for i in
-                range(grapheme_batch.shape[0])]
+        return [self.decode_graphemes(list(grapheme_batch[i])[:prediction_lengths[i]], merge_repeated=merge_repeated)
+                for i in range(grapheme_batch.shape[0])]
 
     @abstractmethod
     def decode_grapheme(self, grapheme: int, previous_grapheme: int) -> str:
         pass
-
-    def decode_grouped_graphemes(self, grouped_graphemes: List[int]) -> str:
-        return "".join([self.decode_grapheme(grapheme,
-                                             previous_grapheme=grouped_graphemes[index - 1] if index > 0 else None)
-                        for index, grapheme in enumerate(grouped_graphemes)])
 
 
 class AsgGraphemeEncoding(GraphemeEncodingBase):

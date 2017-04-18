@@ -89,12 +89,9 @@ class Configuration:
     def fill_cache(self, repair_incorrect: bool = False):
         self.batch_generator.fill_cache(repair_incorrect=repair_incorrect)
 
-    def test_best_model(self, use_ken_lm: bool = False):
-        wav2letter = load_best_wav2letter_model(allowed_characters=self.allowed_characters,
-                                                use_ken_lm=use_ken_lm)
-
-        print(wav2letter.expectations_vs_predictions(self.batch_generator.preview_batch()))
-        print("Average loss: {}".format(wav2letter.loss(self.batch_generator.test_batches())))
+    def test_model(self, wav2letter):
+        print(wav2letter.test_and_predict_batch(self.batch_generator.preview_batch()))
+        print(wav2letter.test_and_predict_batches(self.batch_generator.test_batches()))
 
     def train_transfer_from_best_english_model(self, trainable_layer_count: int = 1):
         from net_with_corpus import Wav2LetterWithCorpus
@@ -106,8 +103,7 @@ class Configuration:
         run_name = timestamp() + "-adam-small-learning-rate-transfer-to-{}-freeze-{}".format(self.name,
                                                                                              frozen_layer_count)
 
-        wav2letter = load_best_wav2letter_model(mel_frequency_count, allowed_characters=self.allowed_characters,
-                                                frozen_layer_count=frozen_layer_count)
+        wav2letter = self.load_best_wav2letter_model(mel_frequency_count, frozen_layer_count=frozen_layer_count)
 
         wav2letter_with_corpus = Wav2LetterWithCorpus(wav2letter, self.corpus,
                                                       spectrogram_cache_directory=self.spectrogram_cache_directory)
@@ -116,21 +112,32 @@ class Configuration:
                                      net_directory=nets_base_directory / run_name,
                                      batches_per_epoch=batches_per_epoch)
 
+    def load_best_wav2letter_model(self,
+                                   mel_frequency_count: int = 128,
+                                   frozen_layer_count=0,
+                                   load_name: str = "20170316-180957-adam-small-learning-rate-complete-95",
+                                   load_epoch=1192,
+                                   use_ken_lm: bool = False):
+        from net import Wav2Letter
 
-def load_best_wav2letter_model(mel_frequency_count: int = 128,
-                               frozen_layer_count=0,
-                               allowed_characters: List[chr] = english_frequent_characters,
-                               use_ken_lm: bool = False):
-    from net import Wav2Letter
+        return Wav2Letter(
+            allowed_characters=self.allowed_characters,
+            input_size_per_time_step=mel_frequency_count,
+            load_model_from_directory=nets_base_directory / load_name,
+            load_epoch=load_epoch,
+            allowed_characters_for_loaded_model=english_frequent_characters,
+            frozen_layer_count=frozen_layer_count,
+            kenlm_directory=(kenlm_base_directory / "english") if use_ken_lm else None)
 
-    return Wav2Letter(
-        allowed_characters=allowed_characters,
-        input_size_per_time_step=mel_frequency_count,
-        load_model_from_directory=nets_base_directory / "20170316-180957-adam-small-learning-rate-complete-95",
-        load_epoch=1192,
-        allowed_characters_for_loaded_model=english_frequent_characters,
-        frozen_layer_count=frozen_layer_count,
-        kenlm_directory=(kenlm_base_directory / "english") if use_ken_lm else None)
+    def test_best_model(self, use_ken_lm: bool = False):
+        self.test_model(self.load_best_wav2letter_model(use_ken_lm=use_ken_lm))
+
+    def load_original_best_model(self):
+        return self.load_best_wav2letter_model(
+            load_name="20170314-134351-adam-small-learning-rate-complete-95", load_epoch=1689)
+
+    def test_original_best_model(self):
+        self.test_model(self.load_original_best_model())
 
 
 def record_plot_and_save() -> LabeledExample:
@@ -146,14 +153,11 @@ def record_plot_and_save() -> LabeledExample:
 
 
 def predict_recording() -> None:
-    wav2letter = load_best_wav2letter_model()
-
-    def predict(labeled_spectrogram: LabeledSpectrogram) -> str:
-        return wav2letter.predict_single(labeled_spectrogram.z_normalized_transposed_spectrogram())
+    wav2letter = Configuration.english().load_best_wav2letter_model()
 
     def print_prediction(labeled_spectrogram: LabeledSpectrogram, description: str = None) -> None:
-        print((description if description else labeled_spectrogram.id) + ": " + '"{}"'.format(
-            predict(labeled_spectrogram)))
+        print((description if description else labeled_spectrogram.id) + ': "{}"'.format(
+            wav2letter.predict(labeled_spectrogram)))
 
     def record_and_print_prediction(description: str = None) -> None:
         print_prediction(record_plot_and_save(), description=description)
@@ -178,7 +182,7 @@ def predict_recording() -> None:
 
 # Configuration.german(from_cached=False).summarize_and_save_corpus()
 
-Configuration.german().fill_cache(repair_incorrect=True)
+# Configuration.german().fill_cache(repair_incorrect=True)
 
 # Configuration.german().test_best_model()
 
@@ -190,8 +194,8 @@ Configuration.german().fill_cache(repair_incorrect=True)
 
 # Configuration.german().train()
 
-# net = load_best_wav2letter_model().predictive_net
+# net = Configuration.english().load_best_wav2letter_model().predictive_net
 
-# Configuration.german().train_transfer_from_best_english_model(trainable_layer_count=2)
+Configuration.german().train_transfer_from_best_english_model(trainable_layer_count=3)
 
-# Configuration.english().test_best_model(use_ken_lm=True)
+# Configuration.english().test_best_model()
