@@ -17,13 +17,13 @@ if __name__ == '__main__':
     # Configuration.german().train_transfer_from_best_english_model(trainable_layer_count=3,
     #                                                               reinitialize_trainable_loaded_layers=True)
 
-    german = Configuration.german()
+    Configuration.english().save_corpus()
 
 
-    def transfer1():
-        return german.load_model(load_name="20170415-092748-adam-small-learning-rate-transfer-to-German-freeze-10",
-                                 load_epoch=1778,
-                                 allowed_characters_for_loaded_model=german_frequent_characters)
+    def test_transfer1():
+        german = Configuration.german()
 
-
-    german.test_model(transfer1())
+        german.test_model(german.load_model(
+            load_name="20170415-092748-adam-small-learning-rate-transfer-to-German-freeze-10",
+            load_epoch=1778,
+            allowed_characters_for_loaded_model=german_frequent_characters))

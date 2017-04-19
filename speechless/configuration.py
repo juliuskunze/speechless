@@ -81,10 +81,12 @@ class Configuration:
                                      batches_per_epoch=self.training_batches_per_epoch)
 
     def summarize_and_save_corpus(self):
-        corpus = self.corpus
-        print(corpus.summary())
-        corpus.summarize_to_csv(self.corpus_directory / "summary.csv")
-        corpus.save(self.corpus_directory / "corpus.csv")
+        print(self.corpus.summary())
+        self.corpus.summarize_to_csv(self.corpus_directory / "summary.csv")
+        self.save_corpus()
+
+    def save_corpus(self):
+        self.corpus.save(self.corpus_directory / "corpus.csv")
 
     def fill_cache(self, repair_incorrect: bool = False):
         self.batch_generator.fill_cache(repair_incorrect=repair_incorrect)

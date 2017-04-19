@@ -59,7 +59,7 @@ class Corpus:
             for row in self.csv_rows():
                 writer.writerow(row)
 
-    def save(self, corpus_csv_file: Path):
+    def save(self, corpus_csv_file: Path, use_relative_audio_file_paths: bool = True):
         import csv
         with corpus_csv_file.open('w', encoding='utf8') as opened_csv:
             writer = csv.writer(opened_csv, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
@@ -68,7 +68,10 @@ class Corpus:
                                  [(e, Phase.test) for e in self.test_examples]
 
             for e, phase in examples_and_phase:
-                writer.writerow((e.id, str(e.audio_file), e.label, phase.value))
+                writer.writerow(
+                    (e.id, str(e.audio_file.relative_to(
+                        corpus_csv_file.parent) if use_relative_audio_file_paths else e.audio_file),
+                     e.label, phase.value))
 
     @staticmethod
     def load(corpus_csv_file: Path) -> 'Corpus':
@@ -76,7 +79,12 @@ class Corpus:
         with corpus_csv_file.open(encoding='utf8') as opened_csv:
             reader = csv.reader(opened_csv, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
 
-            examples = [(LabeledExample(audio_file=Path(audio_file_path), id=id, label=label), Phase[phase])
+            def to_absolute(audio_file_path: Path) -> Path:
+                return audio_file_path if audio_file_path.is_absolute() else Path(
+                    corpus_csv_file.parent) / audio_file_path
+
+            examples = [
+                (LabeledExample(audio_file=to_absolute(Path(audio_file_path)), id=id, label=label), Phase[phase])
                         for id, audio_file_path, label, phase in reader]
 
             return Corpus(training_examples=[e for e, phase in examples if phase == Phase.training],
