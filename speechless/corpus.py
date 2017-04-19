@@ -7,8 +7,8 @@ from pathlib import Path
 
 from typing import List, Iterable, Callable, Tuple, Any
 
-from labeled_example import LabeledExample, LabeledSpectrogram, CachedLabeledSpectrogram
-from tools import group, paginate, mkdir, duplicates
+from speechless.labeled_example import LabeledExample, LabeledSpectrogram, CachedLabeledSpectrogram
+from speechless.tools import group, paginate, mkdir, duplicates
 
 
 class ParsingException(Exception):

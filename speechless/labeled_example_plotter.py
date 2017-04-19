@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import ScalarFormatter, FuncFormatter
 from numpy import ndarray
 
-from labeled_example import LabeledExample, SpectrogramType, SpectrogramFrequencyScale
+from speechless.labeled_example import LabeledExample, SpectrogramType, SpectrogramFrequencyScale
 
 
 class LabeledExamplePlotter:

@@ -13,9 +13,9 @@ from lazy import lazy
 from numpy import ndarray, zeros, array, reshape, insert, random, concatenate
 from typing import List, Callable, Iterable, Tuple, Dict, Optional
 
-from grapheme_enconding import CtcGraphemeEncoding, english_frequent_characters, AsgGraphemeEncoding
-from labeled_example import LabeledSpectrogram
-from tools import average, mkdir, single, read_text
+from speechless.grapheme_enconding import CtcGraphemeEncoding, english_frequent_characters, AsgGraphemeEncoding
+from speechless.labeled_example import LabeledSpectrogram
+from speechless.tools import average, mkdir, single, read_text
 
 
 class ExpectationVsPrediction:

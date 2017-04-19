@@ -6,11 +6,11 @@ from collections import OrderedDict
 from typing import Iterable, Dict, Callable, Optional, List, Tuple, Set
 from xml.etree import ElementTree
 
-from corpus import ParsingException, TrainingTestSplit, CombinedCorpus
-from english_corpus import LibriSpeechCorpus
-from grapheme_enconding import german_frequent_characters
-from labeled_example import LabeledExample, PositionalLabel
-from tools import read_text, single, single_or_none, name_without_extension, group
+from speechless.corpus import ParsingException, TrainingTestSplit, CombinedCorpus
+from speechless.english_corpus import LibriSpeechCorpus
+from speechless.grapheme_enconding import german_frequent_characters
+from speechless.labeled_example import LabeledExample, PositionalLabel
+from speechless.tools import read_text, single, single_or_none, name_without_extension, group
 
 _tags_to_ignore = [
     "<usb>",  # truncated in beginning or incomprehensible

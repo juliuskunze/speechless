@@ -11,10 +11,10 @@ from lazy import lazy
 from typing import Iterable, Optional, List, Callable, Tuple, Dict
 from urllib import request
 
-from corpus import Corpus, TrainingTestSplit, CombinedCorpus
-from grapheme_enconding import english_frequent_characters
-from labeled_example import LabeledExample, PositionalLabel
-from tools import mkdir, name_without_extension, count_summary, distinct, extension
+from speechless.corpus import Corpus, TrainingTestSplit, CombinedCorpus
+from speechless.grapheme_enconding import english_frequent_characters
+from speechless.labeled_example import LabeledExample, PositionalLabel
+from speechless.tools import mkdir, name_without_extension, count_summary, distinct, extension
 
 
 class LibriSpeechCorpus(Corpus):

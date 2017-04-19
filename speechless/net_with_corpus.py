@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from corpus import Corpus, LabeledSpectrogramBatchGenerator
-from net import Wav2Letter
+from speechless.corpus import Corpus, LabeledSpectrogramBatchGenerator
+from speechless.net import Wav2Letter
 
 
 class Wav2LetterWithCorpus:
