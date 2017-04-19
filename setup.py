@@ -2,7 +2,7 @@ from distutils.core import setup
 
 from pip.req import parse_requirements
 
-requirements = [str(ir.req) for ir in parse_requirements("requirements.txt")]
+requirements = [str(ir.req) for ir in parse_requirements("requirements.txt", session=False)]
 
 setup(
     name='speechless',
