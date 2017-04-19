@@ -32,7 +32,11 @@ class Configuration:
                  allowed_characters: List[chr],
                  corpus_from_directory: Callable[[Path], Corpus],
                  corpus_directory: Path = None,
-                 spectrogram_cache_directory: Path = None):
+                 spectrogram_cache_directory: Path = None,
+                 mel_frequency_count: int = 128,
+                 training_batches_per_epoch: int = 100):
+        self.training_batches_per_epoch = training_batches_per_epoch
+        self.mel_frequency_count = mel_frequency_count
         self.name = name
         self.spectrogram_cache_directory = spectrogram_cache_directory if spectrogram_cache_directory else \
             spectrogram_cache_base_directory / name
@@ -65,18 +69,16 @@ class Configuration:
         from speechless.net_with_corpus import Wav2LetterWithCorpus
         from speechless.net import Wav2Letter
 
-        mel_frequency_count = 128
-        batches_per_epoch = 100
         run_name = timestamp() + "-adam-small-learning-rate-complete-training-{}".format(self.name)
 
-        wav2letter = Wav2Letter(mel_frequency_count, allowed_characters=self.allowed_characters)
+        wav2letter = Wav2Letter(self.mel_frequency_count, allowed_characters=self.allowed_characters)
 
         wav2letter_with_corpus = Wav2LetterWithCorpus(wav2letter, self.corpus,
                                                       spectrogram_cache_directory=self.spectrogram_cache_directory)
 
         wav2letter_with_corpus.train(tensor_board_log_directory=tensorboard_log_base_directory / run_name,
                                      net_directory=nets_base_directory / run_name,
-                                     batches_per_epoch=batches_per_epoch)
+                                     batches_per_epoch=self.training_batches_per_epoch)
 
     def summarize_and_save_corpus(self):
         corpus = self.corpus
@@ -95,15 +97,13 @@ class Configuration:
                                                reinitialize_trainable_loaded_layers: bool = False):
         from speechless.net_with_corpus import Wav2LetterWithCorpus
 
-        mel_frequency_count = 128
-        batches_per_epoch = 100
         layer_count = 11
         frozen_layer_count = layer_count - trainable_layer_count
         run_name = timestamp() + "-adam-small-learning-rate-transfer-to-{}-freeze-{}{}".format(
             self.name, frozen_layer_count, "-reinitialize" if reinitialize_trainable_loaded_layers else "")
 
         wav2letter = self.load_best_english_model(
-            mel_frequency_count, frozen_layer_count=frozen_layer_count,
+            frozen_layer_count=frozen_layer_count,
             reinitialize_trainable_loaded_layers=reinitialize_trainable_loaded_layers)
 
         wav2letter_with_corpus = Wav2LetterWithCorpus(wav2letter, self.corpus,
@@ -111,21 +111,20 @@ class Configuration:
 
         wav2letter_with_corpus.train(tensor_board_log_directory=tensorboard_log_base_directory / run_name,
                                      net_directory=nets_base_directory / run_name,
-                                     batches_per_epoch=batches_per_epoch)
+                                     batches_per_epoch=self.training_batches_per_epoch)
 
-    def load_best_english_model(self,
-                                mel_frequency_count: int = 128,
-                                frozen_layer_count=0,
-                                load_name: str = "20170314-134351-adam-small-learning-rate-complete-95",
-                                load_epoch: int = 1689,
-                                allowed_characters_for_loaded_model: List[chr] = english_frequent_characters,
-                                use_ken_lm: bool = False,
-                                reinitialize_trainable_loaded_layers: bool = False):
+    def load_model(self,
+                   load_name: str,
+                   load_epoch: int,
+                   frozen_layer_count: int = 0,
+                   allowed_characters_for_loaded_model: List[chr] = english_frequent_characters,
+                   use_ken_lm: bool = False,
+                   reinitialize_trainable_loaded_layers: bool = False):
         from speechless.net import Wav2Letter
 
         return Wav2Letter(
             allowed_characters=self.allowed_characters,
-            input_size_per_time_step=mel_frequency_count,
+            input_size_per_time_step=self.mel_frequency_count,
             load_model_from_directory=nets_base_directory / load_name,
             load_epoch=load_epoch,
             allowed_characters_for_loaded_model=allowed_characters_for_loaded_model,
@@ -133,12 +132,22 @@ class Configuration:
             kenlm_directory=(kenlm_base_directory / "english") if use_ken_lm else None,
             reinitialize_trainable_loaded_layers=reinitialize_trainable_loaded_layers)
 
-    def test_best_model(self, use_ken_lm: bool = False):
+    def load_best_english_model(self,
+                                frozen_layer_count: int = 0,
+                                use_ken_lm: bool = False,
+                                reinitialize_trainable_loaded_layers: bool = False):
+        return self.load_model(
+            load_name="20170314-134351-adam-small-learning-rate-complete-95", load_epoch=1689,
+            frozen_layer_count=frozen_layer_count,
+            use_ken_lm=use_ken_lm,
+            reinitialize_trainable_loaded_layers=reinitialize_trainable_loaded_layers)
+
+    def test_best_english_model(self, use_ken_lm: bool = False):
         self.test_model(self.load_best_english_model(use_ken_lm=use_ken_lm))
 
-    def load_best_model_trained_in_one_run(self):
-        return self.load_best_english_model(
+    def load_best_english_model_trained_in_one_run(self):
+        return self.load_model(
             load_name="20170316-180957-adam-small-learning-rate-complete-95", load_epoch=1192)
 
-    def test_best_model_trained_in_one_run(self):
-        self.test_model(self.load_best_model_trained_in_one_run())
+    def test_best_english_model_trained_in_one_run(self):
+        self.test_model(self.load_best_english_model_trained_in_one_run())
