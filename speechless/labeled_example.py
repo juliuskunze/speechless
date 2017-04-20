@@ -11,7 +11,7 @@ from lazy import lazy
 from numpy import ndarray, mean, std, vectorize, dot
 from typing import List, Optional, Tuple, Callable
 
-from speechless.tools import name_without_extension, mkdir, write_text
+from speechless.tools import name_without_extension, mkdir, write_text, log
 
 
 class SpectrogramFrequencyScale(Enum):
@@ -128,7 +128,7 @@ class LabeledExample(LabeledSpectrogram):
         try:
             return librosa.get_duration(filename=str(self.audio_file))
         except Exception as e:
-            print("Failed to get duration of {}: {}".format(self.audio_file, e))
+            log("Failed to get duration of {}: {}".format(self.audio_file, e))
             return 0
 
     def spectrogram(self, type: SpectrogramType = SpectrogramType.power_level,
@@ -197,7 +197,7 @@ class CachedLabeledSpectrogram(LabeledSpectrogram):
         try:
             return numpy.load(str(self.spectrogram_cache_file))
         except ValueError:
-            print("Recalculating cached file {} because loading failed.".format(self.spectrogram_cache_file))
+            log("Recalculating cached file {} because loading failed.".format(self.spectrogram_cache_file))
             return self._calculate_and_save_spectrogram()
 
     def _calculate_and_save_spectrogram(self):

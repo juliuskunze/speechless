@@ -5,6 +5,7 @@ from pathlib import Path
 
 import editdistance
 import numpy
+from collections import OrderedDict
 from keras import backend
 from keras.callbacks import Callback, TensorBoard
 from keras.engine import Input, Layer, Model
@@ -17,7 +18,7 @@ from typing import List, Callable, Iterable, Tuple, Dict, Optional
 
 from speechless.grapheme_enconding import CtcGraphemeEncoding, english_frequent_characters, AsgGraphemeEncoding
 from speechless.labeled_example import LabeledSpectrogram
-from speechless.tools import average, mkdir, single, read_text
+from speechless.tools import average_or_nan, mkdir, single, read_text, log
 
 
 class ExpectationVsPrediction:
@@ -59,29 +60,30 @@ class ExpectationsVsPredictions:
 
     @lazy
     def average_letter_error_count(self):
-        return average([r.letter_error_count for r in self.results])
+        return average_or_nan([r.letter_error_count for r in self.results])
 
     @lazy
     def average_word_error_count(self):
-        return average([r.word_error_count for r in self.results])
+        return average_or_nan([r.word_error_count for r in self.results])
 
     @lazy
     def average_letter_error_rate(self) -> float:
-        return average([r.letter_error_rate for r in self.results])
+        return average_or_nan([r.letter_error_rate for r in self.results])
 
     @lazy
     def average_word_error_rate(self) -> float:
-        return average([r.word_error_rate for r in self.results])
+        return average_or_nan([r.word_error_rate for r in self.results])
 
     @lazy
     def average_loss(self) -> float:
-        return average([r.loss for r in self.results])
+        return average_or_nan([r.loss for r in self.results])
 
     def __str__(self):
         return "\n\n".join(str(r) for r in self.results) + "\n\n" + self.summary_line() + "\n\n"
 
     def summary_line(self):
-        return "Average: {:.1f} letter errors ({:.2f}%), {:.1f} word errors ({:.2f}%), loss {:.2f}.".format(
+        return "Average over {} examples: {:.1f} letter errors ({:.2f}%), {:.1f} word errors ({:.2f}%), loss {:.2f}.".format(
+            len(self.results),
             self.average_letter_error_count, self.average_letter_error_rate * 100,
             self.average_word_error_count, self.average_word_error_rate * 100,
             self.average_loss)
@@ -97,6 +99,21 @@ class ExpectationsVsPredictionsInBatches(ExpectationsVsPredictions):
 
     def __str__(self):
         return "All batches: " + self.summary_line() + "\n\n"
+
+
+class ExpectationsVsPredictionsInGroupedBatches(ExpectationsVsPredictionsInBatches):
+    def __init__(self, results_by_group_name: Dict[str, ExpectationsVsPredictionsInBatches]):
+        self.result_batches_by_group_name = results_by_group_name
+
+        super().__init__([result
+                          for (group_name, result_batches) in results_by_group_name.items()
+                          for result in result_batches.results])
+
+    def __str__(self):
+        group_summaries = ["{}: {}".format(group_name, result_batches) for (group_name, result_batches) in
+                           self.result_batches_by_group_name.items()]
+        groups_summary = "\n".join(group_summaries)
+        return "\n\n{}\n\n{}".format(groups_summary, str(super()))
 
 
 class Wav2Letter:
@@ -199,7 +216,7 @@ class Wav2Letter:
                                              asg_initial_probabilities=self.asg_initial_probabilities,
                                              asg_transition_probabilities=self.asg_transition_probabilities)
 
-            print("Loading first {} layers, reinitializing the last {}.".format(
+            log("Loading first {} layers, reinitializing the last {}.".format(
                 loaded_first_layers_count, layer_count - loaded_first_layers_count))
 
             for index, layer in enumerate(self.predictive_net.layers[:loaded_first_layers_count]):
@@ -286,7 +303,7 @@ class Wav2Letter:
         layers = input_convolutions() + inner_convolutions() + output_convolutions()
 
         if self.frozen_layer_count > 0:
-            print("All but {} layers frozen.".format(len(layers) - self.frozen_layer_count))
+            log("All but {} layers frozen.".format(len(layers) - self.frozen_layer_count))
 
         for layer in layers[:self.frozen_layer_count]:
             layer.trainable = False
@@ -406,7 +423,7 @@ class Wav2Letter:
         # Because "AA" is desired, ctc_beam_search_decoder is called with merge_repeated=False, while
         # ctc_greedy_decoder is called with merge_repeated=True:
         if self.kenlm_directory is not None:
-            print("Using kenlm beam search decoder from:\n\n")
+            log("Using kenlm beam search decoder from:\n\n")
             traceback.print_stack(file=sys.stdout)
 
             return tf.nn.ctc_beam_search_decoder(inputs=log_prediction_batch,
@@ -474,18 +491,33 @@ class Wav2Letter:
             labeled_spectrogram_batch=labeled_spectrogram_batch)
         return training_input_dictionary, dummy_labels_for_dummy_loss_function
 
-    def test_and_predict_batch_with_status(self, index: int,
-                                           batch: List[LabeledSpectrogram]) -> ExpectationsVsPredictions:
+    def test_and_predict_batch_with_log(self, index: int,
+                                        batch: List[LabeledSpectrogram]) -> ExpectationsVsPredictions:
         result = self.test_and_predict_batch(batch)
 
-        print(str(result) + " (batch {})".format(index))
+        log(str(result) + " (batch {})".format(index))
 
         return result
 
     def test_and_predict_batches(self, labeled_spectrogram_batches: Iterable[
         List[LabeledSpectrogram]]) -> ExpectationsVsPredictionsInBatches:
-        return ExpectationsVsPredictionsInBatches([self.test_and_predict_batch_with_status(index, batch)
+        return ExpectationsVsPredictionsInBatches([self.test_and_predict_batch_with_log(index, batch)
                                                    for index, batch in enumerate(labeled_spectrogram_batches)])
+
+    def test_and_predict_batches_with_log(
+            self, corpus_name: str, batches: Iterable[List[LabeledSpectrogram]]) -> ExpectationsVsPredictionsInBatches:
+        result = self.test_and_predict_batches(batches)
+
+        log("{}: {}".format(corpus_name, result))
+
+        return result
+
+    def test_and_predict_grouped_batches(self, grouped_labeled_spectrogram_batches: Dict[str, Iterable[
+        List[LabeledSpectrogram]]]) -> ExpectationsVsPredictionsInBatches:
+        return ExpectationsVsPredictionsInGroupedBatches(
+            OrderedDict((corpus_name, self.test_and_predict_batches_with_log(corpus_name=corpus_name,
+                                                                             batches=labeled_spectrogram_batches))
+                        for corpus_name, labeled_spectrogram_batches in grouped_labeled_spectrogram_batches.items()))
 
     def train(self,
               labeled_spectrogram_batches: Iterable[List[LabeledSpectrogram]],
@@ -493,8 +525,7 @@ class Wav2Letter:
               tensor_board_log_directory: Path,
               net_directory: Path,
               batches_per_epoch: int):
-
-        print_preview_batch = lambda: print(self.test_and_predict_batch(preview_labeled_spectrogram_batch))
+        print_preview_batch = lambda: log(self.test_and_predict_batch(preview_labeled_spectrogram_batch))
 
         print_preview_batch()
         self.loss_net.fit_generator(self._loss_inputs_generator(labeled_spectrogram_batches), epochs=100000000,
@@ -521,9 +552,9 @@ class Wav2Letter:
 
                     self.predictive_net.save_weights(str(net_directory / self.model_file_name(epoch)))
 
-        tensorboard_if_running_tensorboard = [TensorBoard(log_dir=str(tensor_board_log_directory),
-                                                          write_images=True)] if backend.backend() == 'tensorflow' else []
-        return tensorboard_if_running_tensorboard + [CustomCallback()]
+        tensorboard_if_running_tensorflow = [TensorBoard(
+            log_dir=str(tensor_board_log_directory), write_images=True)] if backend.backend() == 'tensorflow' else []
+        return tensorboard_if_running_tensorflow + [CustomCallback()]
 
     def _input_batch_and_prediction_lengths(self, spectrograms: List[ndarray]) -> Tuple[ndarray, List[int]]:
         batch_size = len(spectrograms)

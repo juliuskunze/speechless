@@ -1,10 +1,13 @@
+import logging
+import sys
 from itertools import groupby
 from pathlib import Path
 from time import strftime
 
 from collections import OrderedDict, Counter
+from logging import getLogger, StreamHandler
 from os import makedirs, path
-from typing import List, Iterable, TypeVar, Callable, Optional, Dict, Tuple
+from typing import List, Iterable, TypeVar, Callable, Optional, Dict, Tuple, Any
 
 E = TypeVar('Element')
 
@@ -85,10 +88,25 @@ def duplicates(sequence: Iterable[E]) -> List[E]:
     return [item for item, count in Counter(sequence).items() if count > 1]
 
 
-def average(numbers: List[float]) -> float:
+def average_or_nan(numbers: List[float]) -> float:
+    if len(numbers) == 0:
+        return float('nan')
+
     return sum(numbers) / len(numbers)
 
 
 def paginate(sequence: List[E], page_size: int) -> Iterable[List[E]]:
     for start in range(0, len(sequence), page_size):
         yield sequence[start:start + page_size]
+
+
+logger = getLogger("results")
+logger.setLevel(logging.INFO)
+
+handler = StreamHandler(sys.stdout)
+handler.setLevel(logging.INFO)
+logger.addHandler(handler)
+
+
+def log(obj: Any):
+    logger.info(str(obj))

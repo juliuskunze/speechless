@@ -10,7 +10,7 @@ from speechless.corpus import ParsingException, TrainingTestSplit, CombinedCorpu
 from speechless.english_corpus import LibriSpeechCorpus
 from speechless.grapheme_enconding import german_frequent_characters
 from speechless.labeled_example import LabeledExample, PositionalLabel
-from speechless.tools import read_text, single, single_or_none, name_without_extension, group
+from speechless.tools import read_text, single, single_or_none, name_without_extension, group, log
 
 _tags_to_ignore = [
     "<usb>",  # truncated in beginning or incomprehensible
@@ -63,7 +63,7 @@ class GermanClarinCorpus(LibriSpeechCorpus):
                      List[LabeledExample], List[LabeledExample]]] = TrainingTestSplit.randomly_grouped_by_directory()):
         self.umlaut_decoder = umlaut_decoder
 
-        print("Parsing corpus {}...".format(corpus_name))
+        log("Parsing corpus {}...".format(corpus_name))
 
         super().__init__(base_directory=base_directory,
                          base_source_url_or_directory=base_source_url_or_directory,
@@ -99,8 +99,8 @@ class GermanClarinCorpus(LibriSpeechCorpus):
 
         for key in set(extracted.keys()).intersection(set(json_extracted.keys())):
             if extracted[key].words != json_extracted[key].words:
-                print('{}: Words {} extracted from par differ from json {}'.format(key, extracted[key].words,
-                                                                                   json_extracted[key].words))
+                log('{}: Words {} extracted from par differ from json {}'.format(key, extracted[key].words,
+                                                                                 json_extracted[key].words))
 
         # json has positional information and overrides par
         extracted.update(json_extracted)
@@ -200,7 +200,7 @@ class GermanClarinCorpus(LibriSpeechCorpus):
                     next_range = ranges[index + 1]
 
                     if range[1] != next_range[0]:
-                        print("Ranges {} of a word are not consecutive.".format(s))
+                        log("Ranges {} of a word are not consecutive.".format(s))
 
                 return ranges[0][0], ranges[-1][1]
 

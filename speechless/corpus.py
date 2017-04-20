@@ -5,10 +5,11 @@ from enum import Enum
 from multiprocessing.pool import Pool
 from pathlib import Path
 
-from typing import List, Iterable, Callable, Tuple, Any, Optional
+from collections import OrderedDict
+from typing import List, Iterable, Callable, Tuple, Any, Optional, TypeVar, Dict
 
 from speechless.labeled_example import LabeledExample, LabeledSpectrogram, CachedLabeledSpectrogram
-from speechless.tools import group, paginate, mkdir, duplicates
+from speechless.tools import group, paginate, mkdir, duplicates, log
 
 
 class ParsingException(Exception):
@@ -35,7 +36,7 @@ class Corpus:
         self.test_examples = test_examples
         self.examples = training_examples + test_examples
 
-        print("Training on {} examples, testing on {} examples.".format(
+        log("Training on {} examples, testing on {} examples.".format(
             len(self.training_examples), len(self.test_examples)))
 
         duplicate_training_ids = duplicates(e.id for e in training_examples)
@@ -99,6 +100,21 @@ class Corpus:
             return Corpus(training_examples=[e for e, phase in examples if phase == Phase.training],
                           test_examples=[e for e, phase in examples if phase == Phase.test],
                           sampled_training_example_count=sampled_training_example_count)
+
+    K = TypeVar('Key')
+
+    def grouped_by(self, key: Callable[[LabeledExample], K]) -> Dict[K, 'Corpus']:
+        examples_by_key = group(self.examples, key=key)
+        training_examples_by_key = group(self.training_examples, key=key)
+        test_examples_by_key = group(self.test_examples, key=key)
+
+        keys = examples_by_key.keys()
+
+        return OrderedDict(
+            (key,
+             Corpus(training_examples=list(training_examples_by_key[key]) if key in training_examples_by_key else [],
+                    test_examples=list(test_examples_by_key[key]) if key in test_examples_by_key else []))
+            for key in keys)
 
 
 class CombinedCorpus(Corpus):
@@ -214,7 +230,7 @@ class LabeledSpectrogramBatchGenerator:
 
             to_calculate = self.labeled_spectrograms if repair_incorrect else not_yet_cached
 
-            print("Filling cache with {} spectrograms: {} already cached, {} to calculate.".format(
+            log("Filling cache with {} spectrograms: {} already cached, {} to calculate.".format(
                 total, total - len(not_yet_cached), len(to_calculate)))
             for index, labeled_spectrogram in enumerate(to_calculate):
                 pool.apply_async(_repair_cached_spectrogram_if_incorrect if repair_incorrect else _cache_spectrogram,

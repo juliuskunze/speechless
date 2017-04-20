@@ -14,7 +14,7 @@ from urllib import request
 from speechless.corpus import Corpus, TrainingTestSplit, CombinedCorpus
 from speechless.grapheme_enconding import english_frequent_characters
 from speechless.labeled_example import LabeledExample, PositionalLabel
-from speechless.tools import mkdir, name_without_extension, count_summary, distinct, extension
+from speechless.tools import mkdir, name_without_extension, count_summary, distinct, extension, log
 
 
 class LibriSpeechCorpus(Corpus):
@@ -144,7 +144,7 @@ class LibriSpeechCorpus(Corpus):
 
     def _download_if_not_yet_done(self, source_path_or_url: str, target_path: Path) -> Path:
         if not target_path.is_file():
-            print("Downloading corpus {} to {}".format(source_path_or_url, target_path))
+            log("Downloading corpus {} to {}".format(source_path_or_url, target_path))
             if self.base_url_or_directory.startswith("http"):
                 request.urlretrieve(source_path_or_url, str(target_path))
             else:
