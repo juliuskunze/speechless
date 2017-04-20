@@ -131,7 +131,7 @@ class Configuration:
             load_epoch=load_epoch,
             allowed_characters_for_loaded_model=allowed_characters_for_loaded_model,
             frozen_layer_count=frozen_layer_count,
-            kenlm_directory=(kenlm_base_directory / "english") if use_ken_lm else None,
+            kenlm_directory=(kenlm_base_directory / self.name.lower()) if use_ken_lm else None,
             reinitialize_trainable_loaded_layers=reinitialize_trainable_loaded_layers)
 
     def load_best_english_model(self,

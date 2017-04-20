@@ -3,9 +3,9 @@ Speech recognizer based on wav2letter architecture built with Keras
 
 # Installation
 
-[Install keras](https://keras.io/#installation) if not yet done.
+Python3 and [Keras](https://keras.io/#installation) are required.
 
-Then run 
+Run 
 
     pip3 install -r requirements.txt
 

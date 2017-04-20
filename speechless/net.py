@@ -1,3 +1,5 @@
+import sys
+import traceback
 from functools import reduce
 from pathlib import Path
 
@@ -44,7 +46,7 @@ class ExpectationVsPrediction:
         return self.word_error_count / self.expected_word_count
 
     def __str__(self):
-        return 'Expected:  "{}"\nPredicted: "{}"\nErrors: {} letters ({}%), {} words ({}%), loss: {}.'.format(
+        return 'Expected:  "{}"\nPredicted: "{}"\nErrors: {} letters ({}%), {} words ({}%), loss: {:.2f}.'.format(
             self.expected, self.predicted,
             self.letter_error_count, round(self.letter_error_rate * 100),
             self.word_error_count, round(self.word_error_rate * 100),
@@ -79,7 +81,7 @@ class ExpectationsVsPredictions:
         return "\n\n".join(str(r) for r in self.results) + "\n\n" + self.summary_line() + "\n\n"
 
     def summary_line(self):
-        return "Average: {:.1f} letter errors ({:.2f}%), {:.1f} word errors ({:.2f}%), loss {}.".format(
+        return "Average: {:.1f} letter errors ({:.2f}%), {:.1f} word errors ({:.2f}%), loss {:.2f}.".format(
             self.average_letter_error_count, self.average_letter_error_rate * 100,
             self.average_word_error_count, self.average_word_error_rate * 100,
             self.average_loss)
@@ -301,8 +303,11 @@ class Wav2Letter:
     def prediction_batch(self, input_batch: ndarray) -> ndarray:
         """Predicts a grapheme probability batch given a spectrogram batch, employing the learned predictive network."""
         # Indicates to use prediction phase in order to disable dropout (see backend.learning_phase documentation):
-        return backend.function(self.predictive_net.inputs + [backend.learning_phase()], self.predictive_net.outputs)(
-            [input_batch, self.prediction_phase_flag])[0]
+        return self.get_prediction_batch([input_batch, self.prediction_phase_flag])[0]
+
+    @lazy
+    def get_prediction_batch(self):
+        return backend.function(self.predictive_net.inputs + [backend.learning_phase()], self.predictive_net.outputs)
 
     @lazy
     def loss_net(self) -> Model:
@@ -401,21 +406,29 @@ class Wav2Letter:
         # Because "AA" is desired, ctc_beam_search_decoder is called with merge_repeated=False, while
         # ctc_greedy_decoder is called with merge_repeated=True:
         if self.kenlm_directory is not None:
+            print("Using kenlm beam search decoder from:\n\n")
+            traceback.print_stack(file=sys.stdout)
+
             return tf.nn.ctc_beam_search_decoder(inputs=log_prediction_batch,
                                                  sequence_length=prediction_length_batch,
                                                  merge_repeated=False,
-                                                 kenlm_directory_path=str(self.kenlm_directory))
+                                                 kenlm_directory_path=str(self.kenlm_directory),
+                                                 kenlm_weight=.8,
+                                                 word_count_weight=0,
+                                                 valid_word_count_weight=2.3)
         else:
             return tf.nn.ctc_greedy_decoder(inputs=log_prediction_batch,
                                             sequence_length=prediction_length_batch)
 
+    @lazy
+    def get_predicted_graphemes_and_loss_batch(self):
+        return backend.function(self.loss_net.inputs + [backend.learning_phase()],
+                                [single(self.decoding_net.outputs), single(self.loss_net.outputs)])
+
     def test_and_predict_batch(self, labeled_spectrogram_batch: List[LabeledSpectrogram]) -> ExpectationsVsPredictions:
         input_by_name, dummy_labels = self._inputs_for_loss_net(labeled_spectrogram_batch)
 
-        f = backend.function(self.loss_net.inputs + [backend.learning_phase()],
-                             [single(self.decoding_net.outputs), single(self.loss_net.outputs)])
-
-        predicted_graphemes, loss_batch = f(
+        predicted_graphemes, loss_batch = self.get_predicted_graphemes_and_loss_batch(
             [input_by_name[input.name.split(":")[0]] for input in self.loss_net.inputs] + [self.prediction_phase_flag])
 
         # blank labels are returned as -1 by tensorflow:
