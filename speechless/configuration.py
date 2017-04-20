@@ -5,7 +5,7 @@ from pathlib import Path
 # noinspection PyUnresolvedReferences
 import numpy
 from lazy import lazy
-from typing import List, Callable
+from typing import List, Callable, Optional
 
 from speechless.corpus import LabeledSpectrogramBatchGenerator, Corpus
 from speechless.english_corpus import english_corpus
@@ -20,10 +20,6 @@ recording_directory = base_directory / "recordings"
 corpus_base_directory = base_directory / "corpus"
 spectrogram_cache_base_directory = base_directory / "spectrogram-cache"
 kenlm_base_directory = base_directory / "kenlm"
-
-
-def load_cached_corpus(corpus_directory: Path) -> Corpus:
-    return Corpus.load(corpus_directory / "corpus.csv")
 
 
 class Configuration:
@@ -63,7 +59,12 @@ class Configuration:
                              corpus_from_directory=english_corpus)
 
     @staticmethod
-    def german(from_cached: bool = True) -> 'Configuration':
+    def german(from_cached: bool = True,
+               sampled_training_example_count_when_loading_from_cached: Optional[int] = None) -> 'Configuration':
+        def load_cached_corpus(corpus_directory: Path) -> Corpus:
+            return Corpus.load(corpus_directory / "corpus.csv",
+                               sampled_training_example_count=sampled_training_example_count_when_loading_from_cached)
+
         return Configuration(name="German",
                              allowed_characters=german_frequent_characters,
                              corpus_from_directory=load_cached_corpus if from_cached else german_corpus)
@@ -98,12 +99,12 @@ class Configuration:
         print(wav2letter.test_and_predict_batch(self.batch_generator.preview_batch()))
         print(wav2letter.test_and_predict_batches(self.batch_generator.test_batches()))
 
-    def train_transfer_from_best_english_model(self, trainable_layer_count: int = 1,
+    def train_transfer_from_best_english_model(self, frozen_layer_count: int,
                                                reinitialize_trainable_loaded_layers: bool = False):
-        layer_count = 11
-        frozen_layer_count = layer_count - trainable_layer_count
-        run_name = timestamp() + "-adam-small-learning-rate-transfer-to-{}-freeze-{}{}".format(
-            self.name, frozen_layer_count, "-reinitialize" if reinitialize_trainable_loaded_layers else "")
+        run_name = timestamp() + "-adam-small-learning-rate-transfer-to-{}-freeze-{}{}{}".format(
+            self.name, frozen_layer_count, "-reinitialize" if reinitialize_trainable_loaded_layers else "",
+            "-{}examples".format(self.corpus.sampled_training_example_count) if
+            self.corpus.sampled_training_example_count is not None else "")
 
         wav2letter = self.load_best_english_model(
             frozen_layer_count=frozen_layer_count,
@@ -128,7 +129,7 @@ class Configuration:
             allowed_characters_for_loaded_model=allowed_characters_for_loaded_model,
             frozen_layer_count=frozen_layer_count,
             kenlm_directory=(
-            kenlm_base_directory / (self.name.lower() + language_model_name_extension)) if use_ken_lm else None,
+                kenlm_base_directory / (self.name.lower() + language_model_name_extension)) if use_ken_lm else None,
             reinitialize_trainable_loaded_layers=reinitialize_trainable_loaded_layers)
 
     def load_best_english_model(self,

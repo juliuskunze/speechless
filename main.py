@@ -45,8 +45,9 @@ if __name__ == '__main__':
 
     # net = Configuration.english().load_best_english_model().predictive_net
 
-    # Configuration.german().train_transfer_from_best_english_model(trainable_layer_count=4)
+    Configuration.german(sampled_training_example_count_when_loading_from_cached=50000). \
+        train_transfer_from_best_english_model(frozen_layer_count=8)
 
     # Configuration.english().save_corpus()
 
-    test_german_model(freeze10, use_ken_lm=True, use_old_language_model=True)
+    # test_german_model(freeze10, use_ken_lm=True, use_old_language_model=True)

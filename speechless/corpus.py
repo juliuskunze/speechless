@@ -5,7 +5,7 @@ from enum import Enum
 from multiprocessing.pool import Pool
 from pathlib import Path
 
-from typing import List, Iterable, Callable, Tuple, Any
+from typing import List, Iterable, Callable, Tuple, Any, Optional
 
 from speechless.labeled_example import LabeledExample, LabeledSpectrogram, CachedLabeledSpectrogram
 from speechless.tools import group, paginate, mkdir, duplicates
@@ -25,10 +25,18 @@ class Corpus:
 
     def __init__(self,
                  training_examples: List[LabeledExample],
-                 test_examples: List[LabeledExample]):
-        self.training_examples = training_examples
+                 test_examples: List[LabeledExample],
+                 sampled_training_example_count: Optional[int] = None):
+
+        self.training_examples = training_examples if sampled_training_example_count is None else \
+            random.Random(42).sample(training_examples, sampled_training_example_count)
+
+        self.sampled_training_example_count = sampled_training_example_count
         self.test_examples = test_examples
         self.examples = training_examples + test_examples
+
+        print("Training on {} examples, testing on {} examples.".format(
+            len(self.training_examples), len(self.test_examples)))
 
         duplicate_training_ids = duplicates(e.id for e in training_examples)
         if len(duplicate_training_ids) > 0:
@@ -74,7 +82,8 @@ class Corpus:
                      e.label, phase.value))
 
     @staticmethod
-    def load(corpus_csv_file: Path) -> 'Corpus':
+    def load(corpus_csv_file: Path,
+             sampled_training_example_count: Optional[int] = None) -> 'Corpus':
         import csv
         with corpus_csv_file.open(encoding='utf8') as opened_csv:
             reader = csv.reader(opened_csv, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
@@ -85,19 +94,21 @@ class Corpus:
 
             examples = [
                 (LabeledExample(audio_file=to_absolute(Path(audio_file_path)), id=id, label=label), Phase[phase])
-                        for id, audio_file_path, label, phase in reader]
+                for id, audio_file_path, label, phase in reader]
 
             return Corpus(training_examples=[e for e, phase in examples if phase == Phase.training],
-                          test_examples=[e for e, phase in examples if phase == Phase.test])
+                          test_examples=[e for e, phase in examples if phase == Phase.test],
+                          sampled_training_example_count=sampled_training_example_count)
 
 
 class CombinedCorpus(Corpus):
     def __init__(self, corpora: List[Corpus]):
         self.corpora = corpora
+        training_examples = [example for corpus in corpora for example in corpus.training_examples]
+
+        random.sample()
         super().__init__(
-            training_examples=[example
-                               for corpus in corpora
-                               for example in corpus.training_examples],
+            training_examples=training_examples,
             test_examples=[example
                            for corpus in corpora
                            for example in corpus.test_examples])
