@@ -94,14 +94,14 @@ class ExpectationsVsPredictionsInBatches(ExpectationsVsPredictions):
         self.result_batches = result_batches
 
         super().__init__([result
-                          for batch in result_batches
-                          for result in batch.results])
+                          for result_batch in result_batches
+                          for result in result_batch.results])
 
     def __str__(self):
-        return "All batches: " + self.summary_line() + "\n\n"
+        return "All batches: {}\n\n".format(self.summary_line())
 
 
-class ExpectationsVsPredictionsInGroupedBatches(ExpectationsVsPredictionsInBatches):
+class ExpectationsVsPredictionsInGroupedBatches(ExpectationsVsPredictions):
     def __init__(self, results_by_group_name: Dict[str, ExpectationsVsPredictionsInBatches]):
         self.result_batches_by_group_name = results_by_group_name
 
@@ -113,7 +113,7 @@ class ExpectationsVsPredictionsInGroupedBatches(ExpectationsVsPredictionsInBatch
         group_summaries = ["{}: {}".format(group_name, result_batches) for (group_name, result_batches) in
                            self.result_batches_by_group_name.items()]
         groups_summary = "\n".join(group_summaries)
-        return "\n\n{}\n\n{}".format(groups_summary, str(super()))
+        return "\n\n{}\n\nAll corpora: {}\n\n".format(groups_summary, self.summary_line())
 
 
 class Wav2Letter:
@@ -513,7 +513,7 @@ class Wav2Letter:
         return result
 
     def test_and_predict_grouped_batches(self, grouped_labeled_spectrogram_batches: Dict[str, Iterable[
-        List[LabeledSpectrogram]]]) -> ExpectationsVsPredictionsInBatches:
+        List[LabeledSpectrogram]]]) -> ExpectationsVsPredictionsInGroupedBatches:
         return ExpectationsVsPredictionsInGroupedBatches(
             OrderedDict((corpus_name, self.test_and_predict_batches_with_log(corpus_name=corpus_name,
                                                                              batches=labeled_spectrogram_batches))
