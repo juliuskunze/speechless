@@ -34,7 +34,8 @@ class Configuration:
                  corpus_directory: Path = None,
                  spectrogram_cache_directory: Path = None,
                  mel_frequency_count: int = 128,
-                 training_batches_per_epoch: int = 100):
+                 training_batches_per_epoch: int = 100,
+                 batch_size: int = 64):
         self.training_batches_per_epoch = training_batches_per_epoch
         self.mel_frequency_count = mel_frequency_count
         self.name = name
@@ -43,6 +44,7 @@ class Configuration:
         self.corpus_directory = corpus_directory if corpus_directory else corpus_base_directory / name
         self.corpus_from_directory = corpus_from_directory
         self.allowed_characters = allowed_characters
+        self.batch_size = batch_size
 
     @lazy
     def corpus(self) -> Corpus:
@@ -51,7 +53,8 @@ class Configuration:
     @lazy
     def batch_generator(self) -> LabeledSpectrogramBatchGenerator:
         return LabeledSpectrogramBatchGenerator(corpus=self.corpus,
-                                                spectrogram_cache_directory=self.spectrogram_cache_directory)
+                                                spectrogram_cache_directory=self.spectrogram_cache_directory,
+                                                batch_size=self.batch_size)
 
     @staticmethod
     def english() -> 'Configuration':
@@ -65,20 +68,20 @@ class Configuration:
                              allowed_characters=german_frequent_characters,
                              corpus_from_directory=load_cached_corpus if from_cached else german_corpus)
 
-    def train(self):
-        from speechless.net_with_corpus import Wav2LetterWithCorpus
-        from speechless.net import Wav2Letter
+    def train(self, wav2letter, run_name: str) -> None:
+        wav2letter.train(self.batch_generator.training_batches(),
+                         tensor_board_log_directory=tensorboard_log_base_directory / run_name,
+                         net_directory=nets_base_directory / run_name,
+                         preview_labeled_spectrogram_batch=self.batch_generator.preview_batch(),
+                         batches_per_epoch=self.training_batches_per_epoch)
 
-        run_name = timestamp() + "-adam-small-learning-rate-complete-training-{}".format(self.name)
+    def train_from_beginning(self):
+        from speechless.net import Wav2Letter
 
         wav2letter = Wav2Letter(self.mel_frequency_count, allowed_characters=self.allowed_characters)
 
-        wav2letter_with_corpus = Wav2LetterWithCorpus(wav2letter, self.corpus,
-                                                      spectrogram_cache_directory=self.spectrogram_cache_directory)
-
-        wav2letter_with_corpus.train(tensor_board_log_directory=tensorboard_log_base_directory / run_name,
-                                     net_directory=nets_base_directory / run_name,
-                                     batches_per_epoch=self.training_batches_per_epoch)
+        self.train(wav2letter,
+                   run_name=timestamp() + "-adam-small-learning-rate-complete-training-{}".format(self.name))
 
     def summarize_and_save_corpus(self):
         print(self.corpus.summary())
@@ -97,8 +100,6 @@ class Configuration:
 
     def train_transfer_from_best_english_model(self, trainable_layer_count: int = 1,
                                                reinitialize_trainable_loaded_layers: bool = False):
-        from speechless.net_with_corpus import Wav2LetterWithCorpus
-
         layer_count = 11
         frozen_layer_count = layer_count - trainable_layer_count
         run_name = timestamp() + "-adam-small-learning-rate-transfer-to-{}-freeze-{}{}".format(
@@ -108,12 +109,7 @@ class Configuration:
             frozen_layer_count=frozen_layer_count,
             reinitialize_trainable_loaded_layers=reinitialize_trainable_loaded_layers)
 
-        wav2letter_with_corpus = Wav2LetterWithCorpus(wav2letter, self.corpus,
-                                                      spectrogram_cache_directory=self.spectrogram_cache_directory)
-
-        wav2letter_with_corpus.train(tensor_board_log_directory=tensorboard_log_base_directory / run_name,
-                                     net_directory=nets_base_directory / run_name,
-                                     batches_per_epoch=self.training_batches_per_epoch)
+        self.train(wav2letter, run_name=run_name)
 
     def load_model(self,
                    load_name: str,
@@ -121,9 +117,9 @@ class Configuration:
                    frozen_layer_count: int = 0,
                    allowed_characters_for_loaded_model: List[chr] = english_frequent_characters,
                    use_ken_lm: bool = False,
-                   reinitialize_trainable_loaded_layers: bool = False):
+                   reinitialize_trainable_loaded_layers: bool = False,
+                   language_model_name_extension: str = ""):
         from speechless.net import Wav2Letter
-
         return Wav2Letter(
             allowed_characters=self.allowed_characters,
             input_size_per_time_step=self.mel_frequency_count,
@@ -131,7 +127,8 @@ class Configuration:
             load_epoch=load_epoch,
             allowed_characters_for_loaded_model=allowed_characters_for_loaded_model,
             frozen_layer_count=frozen_layer_count,
-            kenlm_directory=(kenlm_base_directory / self.name.lower()) if use_ken_lm else None,
+            kenlm_directory=(
+            kenlm_base_directory / (self.name.lower() + language_model_name_extension)) if use_ken_lm else None,
             reinitialize_trainable_loaded_layers=reinitialize_trainable_loaded_layers)
 
     def load_best_english_model(self,

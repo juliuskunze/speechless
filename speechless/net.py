@@ -474,18 +474,17 @@ class Wav2Letter:
             labeled_spectrogram_batch=labeled_spectrogram_batch)
         return training_input_dictionary, dummy_labels_for_dummy_loss_function
 
+    def test_and_predict_batch_with_status(self, index: int,
+                                           batch: List[LabeledSpectrogram]) -> ExpectationsVsPredictions:
+        result = self.test_and_predict_batch(batch)
+
+        print(str(result) + " (batch {})".format(index))
+
+        return result
+
     def test_and_predict_batches(self, labeled_spectrogram_batches: Iterable[
         List[LabeledSpectrogram]]) -> ExpectationsVsPredictionsInBatches:
-
-        def test_and_predict_batch_with_status(index: int,
-                                               batch: List[LabeledSpectrogram]) -> ExpectationsVsPredictions:
-            result = self.test_and_predict_batch(batch)
-
-            print(str(result) + " (batch {})".format(index))
-
-            return result
-
-        return ExpectationsVsPredictionsInBatches([test_and_predict_batch_with_status(index, batch)
+        return ExpectationsVsPredictionsInBatches([self.test_and_predict_batch_with_status(index, batch)
                                                    for index, batch in enumerate(labeled_spectrogram_batches)])
 
     def train(self,

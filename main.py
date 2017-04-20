@@ -7,7 +7,7 @@ from speechless.configuration import Configuration
 from speechless.grapheme_enconding import german_frequent_characters
 
 
-def test_german_model(model: Tuple[str, int], use_ken_lm=True):
+def test_german_model(model: Tuple[str, int], use_ken_lm=True, use_old_language_model: bool = False):
     load_name, load_epoch = model
     german = Configuration.german()
 
@@ -15,12 +15,13 @@ def test_german_model(model: Tuple[str, int], use_ken_lm=True):
         load_name=load_name,
         load_epoch=load_epoch,
         allowed_characters_for_loaded_model=german_frequent_characters,
-        use_ken_lm=use_ken_lm))
+        use_ken_lm=use_ken_lm,
+        language_model_name_extension="-old" if use_old_language_model else ""))
 
 
-transfer1 = ("20170415-092748-adam-small-learning-rate-transfer-to-German-freeze-10", 1778)
-transfer3 = ("20170418-120145-adam-small-learning-rate-transfer-to-German-freeze-8", 1759)
-german_from_scratch = ("20170415-001150-adam-small-learning-rate-complete-training-German", 443)
+freeze10 = ("20170415-092748-adam-small-learning-rate-transfer-to-German-freeze-10", 1778)
+freeze8 = ("20170418-120145-adam-small-learning-rate-transfer-to-German-freeze-8", 1759)
+german_from_beginning = ("20170415-001150-adam-small-learning-rate-complete-training-German", 443)
 
 if __name__ == '__main__':
     if gethostname() == "ketos":
@@ -48,4 +49,4 @@ if __name__ == '__main__':
 
     # Configuration.english().save_corpus()
 
-    test_german_model(german_from_scratch, use_ken_lm=True)
+    test_german_model(freeze10, use_ken_lm=True, use_old_language_model=True)
