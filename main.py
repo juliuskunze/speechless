@@ -1,31 +1,8 @@
-import logging
 from socket import gethostname
 
-from typing import Callable
-
 from speechless import configuration
-from speechless.configuration import Configuration
-from speechless.tools import log, logger, mkdir, write_text
-
-
-class LoggedRun:
-    def __init__(self, action: Callable[[], None], name: str):
-        self.name = name
-        self.action = action
-
-    def __call__(self, *args, **kwargs):
-        results_directory = configuration.base_directory / "test-results"
-        mkdir(results_directory)
-        result_file = results_directory / self.name
-        write_text(result_file, "")
-        handler = logging.FileHandler(str(result_file))
-        handler.setLevel(logging.INFO)
-        logger.addHandler(handler)
-        try:
-            self.action()
-        finally:
-            logger.removeHandler(handler)
-
+from speechless.configuration import Configuration, LoggedRun
+from speechless.tools import log
 
 if __name__ == '__main__':
     if gethostname() == "ketos":
@@ -55,11 +32,15 @@ if __name__ == '__main__':
     # Configuration.english().save_corpus()
 
     german = Configuration.german()
-    use_kenlm = False
-    kenlm_extension = "kenlm" if use_kenlm else "greedy"
-    logged_runs = [LoggedRun(lambda: german.test_german_model(logged_run, use_ken_lm=use_kenlm),
-                             "{}-{}.txt".format(logged_run[0], kenlm_extension))
-                   for logged_run in Configuration.german_model_names_with_epochs]
+    use_kenlm = True
+    use_old_language_model = False
+    kenlm_extension = ("kenlm-old" if use_old_language_model else "kenlm") if use_kenlm else "greedy"
+    logged_runs = [
+                      LoggedRun(lambda: german.test_best_english_model(use_kenlm=use_kenlm),
+                                "{}-{}.txt".format(Configuration.freeze11[0], kenlm_extension))] + [
+                      LoggedRun(lambda: german.test_german_model(model_name_and_epoch, use_ken_lm=use_kenlm,
+                                                                 use_old_language_model=use_old_language_model),
+                                "{}-{}.txt".format(model_name_and_epoch[0], kenlm_extension))
+                      for model_name_and_epoch in Configuration.german_model_names_with_epochs]
 
-    for logged_run in logged_runs:
-        logged_run()
+    logged_runs[6]()

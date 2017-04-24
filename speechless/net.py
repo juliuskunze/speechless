@@ -1,5 +1,3 @@
-import sys
-import traceback
 from functools import reduce
 from pathlib import Path
 
@@ -216,8 +214,9 @@ class Wav2Letter:
                                              asg_initial_probabilities=self.asg_initial_probabilities,
                                              asg_transition_probabilities=self.asg_transition_probabilities)
 
-            log("Loading first {} layers, reinitializing the last {}.".format(
-                loaded_first_layers_count, layer_count - loaded_first_layers_count))
+            log("Loading first {} layers of {}, epoch {}, reinitializing the last {}.".format(
+                loaded_first_layers_count, load_model_from_directory, load_epoch,
+                layer_count - loaded_first_layers_count))
 
             for index, layer in enumerate(self.predictive_net.layers[:loaded_first_layers_count]):
                 original_weights, original_biases = original_wav2letter.predictive_net.layers[index].get_weights()
@@ -423,9 +422,6 @@ class Wav2Letter:
         # Because "AA" is desired, ctc_beam_search_decoder is called with merge_repeated=False, while
         # ctc_greedy_decoder is called with merge_repeated=True:
         if self.kenlm_directory is not None:
-            log("Using kenlm beam search decoder from:\n\n")
-            traceback.print_stack(file=sys.stdout)
-
             return tf.nn.ctc_beam_search_decoder(inputs=log_prediction_batch,
                                                  sequence_length=prediction_length_batch,
                                                  merge_repeated=False,

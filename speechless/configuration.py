@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 # removing this numpy import caused a segfault on startup of tensorflow-gpu 1.0
@@ -14,7 +15,7 @@ from speechless.german_corpus import german_corpus
 from speechless.grapheme_enconding import english_frequent_characters, german_frequent_characters
 from speechless.labeled_example import LabeledExample
 from speechless.net import Wav2Letter
-from speechless.tools import home_directory, timestamp, log
+from speechless.tools import home_directory, timestamp, log, mkdir, write_text, logger
 
 base_directory = home_directory() / "speechless-data"
 tensorboard_log_base_directory = base_directory / "logs"
@@ -161,8 +162,8 @@ class Configuration:
             use_ken_lm=use_ken_lm,
             reinitialize_trainable_loaded_layers=reinitialize_trainable_loaded_layers)
 
-    def test_best_english_model(self, use_ken_lm: bool = False):
-        self.test_model(self.load_best_english_model(use_ken_lm=use_ken_lm))
+    def test_best_english_model(self, use_kenlm: bool = False):
+        self.test_model_grouped_by_loaded_corpus_name(self.load_best_english_model(use_ken_lm=use_kenlm))
 
     def load_best_english_model_trained_in_one_run(self):
         return self.load_model(
@@ -172,12 +173,14 @@ class Configuration:
         self.test_model(self.load_best_english_model_trained_in_one_run())
 
     german_from_beginning = ("20170415-001150-adam-small-learning-rate-complete-training-German", 443)
-    freeze11 = ("20170314-134351-adam-small-learning-rate-complete-95", 1989)
+    freeze11 = ("20170314-134351-adam-small-learning-rate-complete-95", 1689)
     freeze10 = ("20170415-092748-adam-small-learning-rate-transfer-to-German-freeze-10", 1778)
     freeze8 = ("20170418-120145-adam-small-learning-rate-transfer-to-German-freeze-8", 1759)
     freeze8reinitialize = ("20170418-140152-adam-small-learning-rate-transfer-to-German-freeze-8-reinitialize", 1755)
+    freeze6 = ("20170419-212024-adam-small-learning-rate-transfer-to-German-freeze-6", 1708)
+    freeze9 = ("20170419-235043-adam-small-learning-rate-transfer-to-German-freeze-9", 1789)
 
-    german_model_names_with_epochs = [german_from_beginning, freeze11, freeze10, freeze8, freeze8reinitialize]
+    german_model_names_with_epochs = [german_from_beginning, freeze10, freeze8, freeze8reinitialize, freeze6, freeze9]
 
     def test_german_model(self, model_name_and_epoch: Tuple[str, int], use_ken_lm=True,
                           use_old_language_model: bool = False):
@@ -193,3 +196,23 @@ class Configuration:
             allowed_characters_for_loaded_model=german_frequent_characters,
             use_ken_lm=use_ken_lm,
             language_model_name_extension="-old" if use_old_language_model else "")
+
+
+class LoggedRun:
+    def __init__(self, action: Callable[[], None], name: str,
+                 results_directory: Path = base_directory / "test-results"):
+        self.action = action
+        self.name = name
+        self.results_directory = results_directory
+        self.result_file = self.results_directory / self.name
+
+    def __call__(self):
+        mkdir(self.results_directory)
+        write_text(self.result_file, "")
+        handler = logging.FileHandler(str(self.result_file))
+        handler.setLevel(logging.INFO)
+        logger.addHandler(handler)
+        try:
+            self.action()
+        finally:
+            logger.removeHandler(handler)
