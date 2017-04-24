@@ -96,7 +96,7 @@ class ExpectationsVsPredictionsInBatches(ExpectationsVsPredictions):
                           for result in result_batch.results])
 
     def __str__(self):
-        return "All batches: {}\n\n".format(self.summary_line())
+        return "All batches: {}".format(self.summary_line())
 
 
 class ExpectationsVsPredictionsInGroupedBatches(ExpectationsVsPredictions):

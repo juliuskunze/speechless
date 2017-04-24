@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy
 from collections import OrderedDict
 from lazy import lazy
-from typing import List, Callable, Optional, Tuple
+from typing import List, Callable, Optional
 
 from speechless.corpus import LabeledSpectrogramBatchGenerator, Corpus
 from speechless.english_corpus import english_corpus
@@ -173,23 +173,25 @@ class Configuration:
         self.test_model(self.load_best_english_model_trained_in_one_run())
 
     german_from_beginning = ("20170415-001150-adam-small-learning-rate-complete-training-German", 443)
-    freeze11 = ("20170314-134351-adam-small-learning-rate-complete-95", 1689)
-    freeze10 = ("20170415-092748-adam-small-learning-rate-transfer-to-German-freeze-10", 1778)
-    freeze8 = ("20170418-120145-adam-small-learning-rate-transfer-to-German-freeze-8", 1759)
-    freeze8reinitialize = ("20170418-140152-adam-small-learning-rate-transfer-to-German-freeze-8-reinitialize", 1755)
+    freeze0 = ("20170420-001258-adam-small-learning-rate-transfer-to-German-freeze-0", 1704)
     freeze6 = ("20170419-212024-adam-small-learning-rate-transfer-to-German-freeze-6", 1708)
+    freeze8 = ("20170418-120145-adam-small-learning-rate-transfer-to-German-freeze-8", 1759)
     freeze9 = ("20170419-235043-adam-small-learning-rate-transfer-to-German-freeze-9", 1789)
+    freeze10 = ("20170415-092748-adam-small-learning-rate-transfer-to-German-freeze-10", 1778)
+    freeze11 = ("20170314-134351-adam-small-learning-rate-complete-95", 1689)
+    freeze8reinitialize = ("20170418-140152-adam-small-learning-rate-transfer-to-German-freeze-8-reinitialize", 1755)
+    freeze8small = ("20170420-174046-adam-small-learning-rate-transfer-to-German-freeze-8-50000examples", 1809)
 
-    german_model_names_with_epochs = [german_from_beginning, freeze10, freeze8, freeze8reinitialize, freeze6, freeze9]
+    german_model_names_with_epochs = [german_from_beginning, freeze0, freeze6, freeze8, freeze9, freeze10,
+                                      freeze8reinitialize, freeze8small]
 
-    def test_german_model(self, model_name_and_epoch: Tuple[str, int], use_ken_lm=True,
+    def test_german_model(self, load_name: str, load_epoch: int, use_ken_lm=True,
                           use_old_language_model: bool = False):
         self.test_model_grouped_by_loaded_corpus_name(self.load_german_model(
-            model_name_and_epoch, use_ken_lm=use_ken_lm, use_old_language_model=use_old_language_model))
+            load_name, load_epoch, use_ken_lm=use_ken_lm, use_old_language_model=use_old_language_model))
 
-    def load_german_model(self, model_name_and_epoch: Tuple[str, int], use_ken_lm=True,
+    def load_german_model(self, load_name: str, load_epoch: int, use_ken_lm=True,
                           use_old_language_model: bool = False) -> Wav2Letter:
-        load_name, load_epoch = model_name_and_epoch
         return self.load_model(
             load_name=load_name,
             load_epoch=load_epoch,
