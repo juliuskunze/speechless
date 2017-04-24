@@ -23,31 +23,32 @@ if __name__ == '__main__':
 
     # Configuration.english().summarize_and_save_corpus()
 
-    # Configuration.german().train()
+    Configuration.german(sampled_training_example_count_when_loading_from_cached=50000).train_from_beginning()
 
     # net = Configuration.english().load_best_english_model().predictive_net
 
-    # Configuration.german(sampled_training_example_count_when_loading_from_cached=50000). \
+    # Configuration.german(sampled_training_example_count_when_loading_from_cached=10000). \
     #    train_transfer_from_best_english_model(frozen_layer_count=8)
 
     # Configuration.english().save_corpus()
-    index = int(sys.argv[1])
 
-    german = Configuration.german()
-    use_kenlm = False
-    use_old_language_model = False
-    kenlm_extension = ("kenlm-old" if use_old_language_model else "kenlm") if use_kenlm else "greedy"
+    def test():
+        index = int(sys.argv[1])
 
+        german = Configuration.german()
+        use_kenlm = False
+        use_old_language_model = False
+        kenlm_extension = ("kenlm-old" if use_old_language_model else "kenlm") if use_kenlm else "greedy"
 
-    def logged_german_run(model_name: str, epoch: int) -> LoggedRun:
-        return LoggedRun(lambda: german.test_german_model(model_name, epoch, use_ken_lm=use_kenlm,
-                                                          use_old_language_model=use_old_language_model),
-                         "{}-{}.txt".format(model_name, kenlm_extension))
+        def logged_german_run(model_name: str, epoch: int) -> LoggedRun:
+            return LoggedRun(lambda: german.test_german_model(model_name, epoch, use_ken_lm=use_kenlm,
+                                                              use_old_language_model=use_old_language_model),
+                             "{}-{}-{}.txt".format(model_name, epoch, kenlm_extension))
 
+        logged_runs = [LoggedRun(lambda: german.test_best_english_model(use_kenlm=use_kenlm),
+                                 "{}-{}-{}.txt".format(Configuration.freeze11[0], Configuration.freeze11[1],
+                                                       kenlm_extension))] + [
+                          logged_german_run(model_name, epoch) for model_name, epoch in
+                          Configuration.german_model_names_with_epochs]
 
-    logged_runs = [LoggedRun(lambda: german.test_best_english_model(use_kenlm=use_kenlm),
-                             "{}-{}.txt".format(Configuration.freeze11[0], kenlm_extension))] + [
-                      logged_german_run(model_name, epoch) for model_name, epoch in
-                      Configuration.german_model_names_with_epochs]
-
-    logged_runs[index]()
+        logged_runs[index]()
