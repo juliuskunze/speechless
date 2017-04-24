@@ -15,6 +15,7 @@ if __name__ == '__main__':
         configuration.spectrogram_cache_base_directory = ketos_spectrogram_cache_base_directory
         configuration.kenlm_base_directory = ketos_kenlm_base_directory
 
+
     # Configuration.german(from_cached=False).summarize_and_save_corpus()
 
     # Configuration.german().fill_cache(repair_incorrect=True)
@@ -23,7 +24,7 @@ if __name__ == '__main__':
 
     # Configuration.english().summarize_and_save_corpus()
 
-    Configuration.german(sampled_training_example_count_when_loading_from_cached=50000).train_from_beginning()
+    # Configuration.german(sampled_training_example_count_when_loading_from_cached=50000).train_from_beginning()
 
     # net = Configuration.english().load_best_english_model().predictive_net
 
@@ -32,23 +33,24 @@ if __name__ == '__main__':
 
     # Configuration.english().save_corpus()
 
-    def test():
-        index = int(sys.argv[1])
-
-        german = Configuration.german()
-        use_kenlm = False
-        use_old_language_model = False
-        kenlm_extension = ("kenlm-old" if use_old_language_model else "kenlm") if use_kenlm else "greedy"
+    def test_german(use_kenlm=False, language_model_name_extension="",
+                    index: int = int(sys.argv[1])):
+        configuration = Configuration.german()
+        kenlm_extension = ("kenlm" + language_model_name_extension) if use_kenlm else "greedy"
 
         def logged_german_run(model_name: str, epoch: int) -> LoggedRun:
-            return LoggedRun(lambda: german.test_german_model(model_name, epoch, use_ken_lm=use_kenlm,
-                                                              use_old_language_model=use_old_language_model),
+            return LoggedRun(lambda: configuration.test_german_model(
+                model_name, epoch, use_ken_lm=use_kenlm,
+                language_model_name_extension=language_model_name_extension),
                              "{}-{}-{}.txt".format(model_name, epoch, kenlm_extension))
 
-        logged_runs = [LoggedRun(lambda: german.test_best_english_model(use_kenlm=use_kenlm),
+        logged_runs = [LoggedRun(lambda: configuration.test_best_english_model(use_kenlm=use_kenlm),
                                  "{}-{}-{}.txt".format(Configuration.freeze11[0], Configuration.freeze11[1],
                                                        kenlm_extension))] + [
                           logged_german_run(model_name, epoch) for model_name, epoch in
                           Configuration.german_model_names_with_epochs]
 
         logged_runs[index]()
+
+
+    test_german(use_kenlm=True, language_model_name_extension="-incl-trans")

@@ -193,18 +193,18 @@ class Configuration:
                                       freeze8reinitialize, freeze8small]
 
     def test_german_model(self, load_name: str, load_epoch: int, use_ken_lm=True,
-                          use_old_language_model: bool = False):
+                          language_model_name_extension: str = ""):
         self.test_model_grouped_by_loaded_corpus_name(self.load_german_model(
-            load_name, load_epoch, use_ken_lm=use_ken_lm, use_old_language_model=use_old_language_model))
+            load_name, load_epoch, use_ken_lm=use_ken_lm, language_model_name_extension=language_model_name_extension))
 
     def load_german_model(self, load_name: str, load_epoch: int, use_ken_lm=True,
-                          use_old_language_model: bool = False) -> Wav2Letter:
+                          language_model_name_extension: str = "") -> Wav2Letter:
         return self.load_model(
             load_name=load_name,
             load_epoch=load_epoch,
             allowed_characters_for_loaded_model=german_frequent_characters,
             use_ken_lm=use_ken_lm,
-            language_model_name_extension="-old" if use_old_language_model else "")
+            language_model_name_extension=language_model_name_extension)
 
 
 class LoggedRun:
