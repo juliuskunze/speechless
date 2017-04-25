@@ -117,12 +117,11 @@ class Corpus:
             for key in keys)
 
 
-class CombinedCorpus(Corpus):
+class ComposedCorpus(Corpus):
     def __init__(self, corpora: List[Corpus]):
         self.corpora = corpora
         training_examples = [example for corpus in corpora for example in corpus.training_examples]
 
-        random.sample()
         super().__init__(
             training_examples=training_examples,
             test_examples=[example

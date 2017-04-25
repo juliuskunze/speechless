@@ -33,6 +33,8 @@ if __name__ == '__main__':
 
     # Configuration.english().save_corpus()
 
+    Configuration.mixed_german_english().train_from_beginning()
+
     def test_german(use_kenlm=False, language_model_name_extension="",
                     index: int = int(sys.argv[1])):
         configuration = Configuration.german()
@@ -53,4 +55,4 @@ if __name__ == '__main__':
         logged_runs[index]()
 
 
-    test_german(use_kenlm=True, language_model_name_extension="-incl-trans")
+        # test_german(use_kenlm=True, language_model_name_extension="-incl-trans")

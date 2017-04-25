@@ -9,7 +9,7 @@ from collections import OrderedDict
 from lazy import lazy
 from typing import List, Callable, Optional
 
-from speechless.corpus import LabeledSpectrogramBatchGenerator, Corpus
+from speechless.corpus import LabeledSpectrogramBatchGenerator, Corpus, ComposedCorpus
 from speechless.english_corpus import english_corpus
 from speechless.german_corpus import german_corpus
 from speechless.grapheme_enconding import english_frequent_characters, german_frequent_characters
@@ -31,8 +31,8 @@ class Configuration:
                  name: str,
                  allowed_characters: List[chr],
                  corpus_from_directory: Callable[[Path], Corpus],
-                 corpus_directory: Path = None,
-                 spectrogram_cache_directory: Path = None,
+                 corpus_directory: Optional[Path] = None,
+                 spectrogram_cache_directory: Optional[Path] = None,
                  mel_frequency_count: int = 128,
                  training_batches_per_epoch: int = 100,
                  batch_size: int = 64):
@@ -75,6 +75,14 @@ class Configuration:
         return Configuration(name="German",
                              allowed_characters=german_frequent_characters,
                              corpus_from_directory=load_cached_corpus if from_cached else german_corpus)
+
+    @staticmethod
+    def mixed_german_english():
+        return Configuration(
+            name="mixed-English-German",
+            allowed_characters=german_frequent_characters,
+            corpus_from_directory=lambda _: ComposedCorpus(
+                [Configuration.english().corpus, Configuration.german().corpus]))
 
     def train(self, wav2letter, run_name: str) -> None:
         wav2letter.train(self.batch_generator.training_batches(),

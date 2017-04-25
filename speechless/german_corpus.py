@@ -6,7 +6,7 @@ from collections import OrderedDict
 from typing import Iterable, Dict, Callable, Optional, List, Tuple, Set
 from xml.etree import ElementTree
 
-from speechless.corpus import ParsingException, TrainingTestSplit, CombinedCorpus
+from speechless.corpus import ParsingException, TrainingTestSplit, ComposedCorpus
 from speechless.english_corpus import LibriSpeechCorpus
 from speechless.grapheme_enconding import german_frequent_characters
 from speechless.labeled_example import LabeledExample, PositionalLabel
@@ -407,7 +407,7 @@ class GermanVoxforgeCorpus(GermanClarinCorpus):
             raise ParsingException("Error parsing annotation {}".format(xml_file))
 
 
-def german_corpus(base_directory: Path) -> CombinedCorpus:
-    return CombinedCorpus(
+def german_corpus(base_directory: Path) -> ComposedCorpus:
+    return ComposedCorpus(
         clarin_corpora_sorted_by_size(base_directory=base_directory) +
         [GermanVoxforgeCorpus(base_directory=base_directory)])

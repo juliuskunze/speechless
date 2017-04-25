@@ -11,7 +11,7 @@ from lazy import lazy
 from typing import Iterable, Optional, List, Callable, Tuple, Dict
 from urllib import request
 
-from speechless.corpus import Corpus, TrainingTestSplit, CombinedCorpus
+from speechless.corpus import Corpus, TrainingTestSplit, ComposedCorpus
 from speechless.grapheme_enconding import english_frequent_characters
 from speechless.labeled_example import LabeledExample, PositionalLabel
 from speechless.tools import mkdir, name_without_extension, count_summary, distinct, extension, log
@@ -303,8 +303,8 @@ class LibriSpeechCorpus(Corpus):
         return [e for e in self.examples if not e.positional_label.has_positions()]
 
 
-def english_corpus(base_directory: Path) -> CombinedCorpus:
-    return CombinedCorpus([
+def english_corpus(base_directory: Path) -> ComposedCorpus:
+    return ComposedCorpus([
         LibriSpeechCorpus(base_directory=base_directory, corpus_name="dev-clean",
                           training_test_split=TrainingTestSplit.training_only),
         LibriSpeechCorpus(base_directory=base_directory, corpus_name="dev-other",
