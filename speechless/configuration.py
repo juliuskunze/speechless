@@ -148,7 +148,7 @@ class Configuration:
                    load_epoch: int,
                    frozen_layer_count: int = 0,
                    allowed_characters_for_loaded_model: List[chr] = english_frequent_characters,
-                   use_ken_lm: bool = False,
+                   use_kenlm: bool = False,
                    reinitialize_trainable_loaded_layers: bool = False,
                    language_model_name_extension: str = ""):
         from speechless.net import Wav2Letter
@@ -160,7 +160,7 @@ class Configuration:
             allowed_characters_for_loaded_model=allowed_characters_for_loaded_model,
             frozen_layer_count=frozen_layer_count,
             kenlm_directory=(
-                kenlm_base_directory / (self.name.lower() + language_model_name_extension)) if use_ken_lm else None,
+                kenlm_base_directory / (self.name.lower() + language_model_name_extension)) if use_kenlm else None,
             reinitialize_trainable_loaded_layers=reinitialize_trainable_loaded_layers)
 
     def load_best_english_model(self,
@@ -170,7 +170,7 @@ class Configuration:
         return self.load_model(
             load_name="20170314-134351-adam-small-learning-rate-complete-95", load_epoch=1689,
             frozen_layer_count=frozen_layer_count,
-            use_ken_lm=use_ken_lm,
+            use_kenlm=use_ken_lm,
             reinitialize_trainable_loaded_layers=reinitialize_trainable_loaded_layers)
 
     def test_best_english_model(self, use_kenlm: bool = False):
@@ -186,19 +186,29 @@ class Configuration:
     freeze0day4hour7 = ("20170420-001258-adam-small-learning-rate-transfer-to-German-freeze-0", 2066)
     german_from_beginning = ("20170415-001150-adam-small-learning-rate-complete-training-German", 443)
 
+    english_baseline = ("20170314-134351-adam-small-learning-rate-complete-95", 1689)
+    english_correct_test_split = ("20170414-113509-adam-small-learning-rate-complete-training", 733)
+
     freeze0 = ("20170420-001258-adam-small-learning-rate-transfer-to-German-freeze-0", 1704)
     freeze6 = ("20170419-212024-adam-small-learning-rate-transfer-to-German-freeze-6", 1708)
     freeze8 = ("20170418-120145-adam-small-learning-rate-transfer-to-German-freeze-8", 1759)
     freeze9 = ("20170419-235043-adam-small-learning-rate-transfer-to-German-freeze-9", 1789)
     freeze10 = ("20170415-092748-adam-small-learning-rate-transfer-to-German-freeze-10", 1778)
-    freeze11 = ("20170314-134351-adam-small-learning-rate-complete-95", 1689)
+
 
     freeze8reinitialize = ("20170418-140152-adam-small-learning-rate-transfer-to-German-freeze-8-reinitialize", 1755)
     freeze8small = ("20170420-174046-adam-small-learning-rate-transfer-to-German-freeze-8-50000examples", 1809)
+    freeze8tiny_1742 = ("20170424-231220-adam-small-learning-rate-transfer-to-German-freeze-8-10000examples", 1742)
+    freeze8tiny_1716 = ("20170424-231220-adam-small-learning-rate-transfer-to-German-freeze-8-10000examples", 1716)
+
+    german_small_from_beginning_day2hour15 = \
+        ("20170424-232706-adam-small-learning-rate-complete-training-German-50000examples", 237)
+    freeze8_small_day2hour15 = \
+        ("20170420-174046-adam-small-learning-rate-transfer-to-German-freeze-8-50000examples", 2121)
 
     german_model_names_with_epochs = [freeze0day4hour7, german_from_beginning, freeze0, freeze6, freeze8, freeze9,
-                                      freeze10,
-                                      freeze8reinitialize, freeze8small]
+                                      freeze10, freeze8reinitialize, freeze8small, freeze8tiny_1742, freeze8tiny_1716,
+                                      german_small_from_beginning_day2hour15, freeze8_small_day2hour15]
 
     def test_german_model(self, load_name: str, load_epoch: int, use_ken_lm=True,
                           language_model_name_extension: str = ""):
@@ -211,7 +221,7 @@ class Configuration:
             load_name=load_name,
             load_epoch=load_epoch,
             allowed_characters_for_loaded_model=german_frequent_characters,
-            use_ken_lm=use_ken_lm,
+            use_kenlm=use_ken_lm,
             language_model_name_extension=language_model_name_extension)
 
 

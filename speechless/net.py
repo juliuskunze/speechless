@@ -11,12 +11,12 @@ from keras.layers import Lambda, Dropout, Conv1D
 from keras.models import Sequential
 from keras.optimizers import Optimizer, Adam
 from lazy import lazy
-from numpy import ndarray, zeros, array, reshape, insert, random, concatenate
+from numpy import ndarray, zeros, array, reshape, random, concatenate
 from typing import List, Callable, Iterable, Tuple, Dict, Optional
 
 from speechless.grapheme_enconding import CtcGraphemeEncoding, english_frequent_characters, AsgGraphemeEncoding
 from speechless.labeled_example import LabeledSpectrogram
-from speechless.tools import average_or_nan, mkdir, single, read_text, log
+from speechless.tools import average_or_nan, mkdir, single, read_text, log, single_or_none
 
 
 class ExpectationVsPrediction:
@@ -181,6 +181,31 @@ class Wav2Letter:
                 allowed_characters_for_loaded_model, load_epoch, load_model_from_directory,
                 loaded_first_layers_count=frozen_layer_count if reinitialize_trainable_loaded_layers else None)
 
+    @staticmethod
+    def indices_to_load_by_target_index(allowed_characters_for_loaded_model: List[chr],
+                                        allowed_characters: List[chr]) -> List[Optional[int]]:
+
+        load_character_set = set(allowed_characters_for_loaded_model)
+        target_character_set = set(allowed_characters)
+
+        ignored = load_character_set - target_character_set
+        if ignored:
+            log("Ignoring characters {} from loaded model.".format(sorted(ignored)))
+
+        extra = target_character_set - load_character_set
+        if extra:
+            log("Initializing extra characters {} not found in model.".format(sorted(extra)))
+
+        def character_index_to_load(target_character: chr) -> Optional[int]:
+            return single_or_none([index for index, character in enumerate(allowed_characters_for_loaded_model) if
+                                   character == target_character])
+
+        character_mapping = [character_index_to_load(character) for character in allowed_characters]
+
+        log("Character mapping: {}".format(character_mapping))
+
+        return character_mapping
+
     def _load_weights(self, allowed_characters_for_loaded_model: List[chr], load_epoch: int,
                       load_model_from_directory: Path, loaded_first_layers_count: Optional[int] = None):
         if allowed_characters_for_loaded_model is None:
@@ -190,15 +215,6 @@ class Wav2Letter:
 
             if loaded_first_layers_count is None:
                 loaded_first_layers_count = layer_count
-
-            loaded_allowed_character_count = len(allowed_characters_for_loaded_model)
-            extra_allowed_character_count = len(
-                self.grapheme_encoding.allowed_characters) - loaded_allowed_character_count
-
-            if extra_allowed_character_count < 0 or self.grapheme_encoding.allowed_characters[
-                                                    :loaded_allowed_character_count] != allowed_characters_for_loaded_model:
-                raise ValueError(
-                    "Allowed characters must begin with the allowed characters for loaded model in the same order.")
 
             original_wav2letter = Wav2Letter(input_size_per_time_step=self.input_size_per_time_step,
                                              allowed_characters=allowed_characters_for_loaded_model,
@@ -222,18 +238,33 @@ class Wav2Letter:
                 original_weights, original_biases = original_wav2letter.predictive_net.layers[index].get_weights()
 
                 if index == len(self.predictive_net.layers) - 1:
-                    original_shape = original_weights.shape
-                    grapheme_axis = 2
-                    to_insert = zeros((original_shape[0], original_shape[1], extra_allowed_character_count))
-                    original_weights = insert(
-                        original_weights,
-                        axis=grapheme_axis,
-                        obj=[len(allowed_characters_for_loaded_model)],
-                        values=to_insert)
+                    indices_to_load_by_target_index = self.indices_to_load_by_target_index(
+                        allowed_characters_for_loaded_model,
+                        self.grapheme_encoding.allowed_characters)
 
-                    original_biases = insert(
-                        original_biases, original_biases.shape[0] - 1,
-                        zeros((extra_allowed_character_count,)), axis=0)
+                    def get_grapheme_index_to_load(target_grapheme_index: int):
+                        if target_grapheme_index == self.grapheme_encoding.ctc_blank:
+                            return original_wav2letter.grapheme_encoding.ctc_blank
+
+                        return indices_to_load_by_target_index[target_grapheme_index]
+
+                    original_shape = original_weights.shape
+
+                    def loaded_character_weights(index: Optional[int]) -> ndarray:
+                        return original_weights[:, :, index:index + 1] if index else \
+                            zeros((original_shape[0], original_shape[1], 1))
+
+                    def loaded_character_bias(index: Optional[int]) -> int:
+                        return original_biases[index] if index else 0
+
+                    grapheme_indices_to_load = \
+                        [get_grapheme_index_to_load(target_grapheme_index)
+                         for target_grapheme_index in range(self.grapheme_encoding.grapheme_set_size)]
+
+                    original_weights = numpy.concatenate(
+                        [loaded_character_weights(index) for index in grapheme_indices_to_load], axis=2)
+
+                    original_biases = numpy.array([loaded_character_bias(index) for index in grapheme_indices_to_load])
 
                 layer.set_weights([original_weights, original_biases])
 
