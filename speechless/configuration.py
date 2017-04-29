@@ -198,17 +198,25 @@ class Configuration:
 
     freeze8reinitialize = ("20170418-140152-adam-small-learning-rate-transfer-to-German-freeze-8-reinitialize", 1755)
     freeze8small = ("20170420-174046-adam-small-learning-rate-transfer-to-German-freeze-8-50000examples", 1809)
+    freeze8small_15hours = ("20170420-174046-adam-small-learning-rate-transfer-to-German-freeze-8-50000examples", 1727)
+    freeze8small_20hours = ("20170420-174046-adam-small-learning-rate-transfer-to-German-freeze-8-50000examples", 1767)
+    freeze8small_40hours = ("20170420-174046-adam-small-learning-rate-transfer-to-German-freeze-8-50000examples", 1939)
+    freeze8small_50hours = ("20170420-174046-adam-small-learning-rate-transfer-to-German-freeze-8-50000examples", 2021)
+    freeze8tiny = ("20170424-231220-adam-small-learning-rate-transfer-to-German-freeze-8-10000examples", 1844)
     freeze8tiny_1742 = ("20170424-231220-adam-small-learning-rate-transfer-to-German-freeze-8-10000examples", 1742)
     freeze8tiny_1716 = ("20170424-231220-adam-small-learning-rate-transfer-to-German-freeze-8-10000examples", 1716)
 
     german_small_from_beginning_day2hour15 = \
         ("20170424-232706-adam-small-learning-rate-complete-training-German-50000examples", 237)
-    freeze8_small_day2hour15 = \
+    freeze8small_day2hour15 = \
         ("20170420-174046-adam-small-learning-rate-transfer-to-German-freeze-8-50000examples", 2121)
 
     german_model_names_with_epochs = [freeze0day4hour7, german_from_beginning, freeze0, freeze6, freeze8, freeze9,
-                                      freeze10, freeze8reinitialize, freeze8small, freeze8tiny_1742, freeze8tiny_1716,
-                                      german_small_from_beginning_day2hour15, freeze8_small_day2hour15]
+                                      freeze10, freeze8reinitialize,
+                                      freeze8small, freeze8small_15hours, freeze8small_20hours,
+                                      freeze8small_day2hour15, freeze8small_40hours, freeze8small_50hours,
+                                      freeze8tiny, freeze8tiny_1742, freeze8tiny_1716,
+                                      german_small_from_beginning_day2hour15]
 
     def test_german_model(self, load_name: str, load_epoch: int, use_ken_lm=True,
                           language_model_name_extension: str = ""):

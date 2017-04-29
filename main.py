@@ -3,16 +3,15 @@ from socket import gethostname
 
 from speechless import configuration
 from speechless.configuration import Configuration, LoggedRun
-from speechless.grapheme_enconding import german_frequent_characters
 from speechless.tools import log
 
 
-def only_allocate_as_much_gpu_memory_as_needed():
+def restrict_gpu_memory(per_process_gpu_memory_fraction: float = 0.9):
     import os
     import tensorflow as tf
     import keras
     thread_count = os.environ.get('OMP_NUM_THREADS')
-    gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.75)
+    gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=per_process_gpu_memory_fraction)
     config = tf.ConfigProto(gpu_options=gpu_options,
                             allow_soft_placement=True,
                             intra_op_parallelism_threads=thread_count) \
@@ -30,7 +29,7 @@ if __name__ == '__main__':
         configuration.spectrogram_cache_base_directory = ketos_spectrogram_cache_base_directory
         configuration.kenlm_base_directory = ketos_kenlm_base_directory
     else:
-        only_allocate_as_much_gpu_memory_as_needed()
+        restrict_gpu_memory()
 
 
     # Configuration.german(from_cached=False).summarize_and_save_corpus()
@@ -52,7 +51,7 @@ if __name__ == '__main__':
 
     # Configuration.mixed_german_english().train_from_beginning()
 
-    # Configuration.german().train_transfer_from_best_english_model(frozen_layer_count=0)
+    Configuration.german().train_transfer_from_best_english_model(frozen_layer_count=0)
 
 
     def test_german(use_kenlm=False, language_model_name_extension="",
@@ -65,31 +64,29 @@ if __name__ == '__main__':
                 language_model_name_extension=language_model_name_extension),
                              "{}-{}-{}.txt".format(model_name, epoch, kenlm_extension))
 
-        def test_english_model_correct_split():
+        def test_english_baseline():
             english = Configuration.english()
             # german_frequent_characters, as this model was accidentally trained with these
             # german extra characters will be ignored
-            model = english.load_model(Configuration.english_correct_test_split[0],
-                                       Configuration.english_correct_test_split[1],
+            model = english.load_model(Configuration.english_baseline[0],
+                                       Configuration.english_baseline[1],
                                        use_kenlm=use_kenlm,
-                                       language_model_name_extension=language_model_name_extension,
-                                       allowed_characters_for_loaded_model=german_frequent_characters)
+                                       language_model_name_extension=language_model_name_extension)
             english.test_model(model)
 
-        english_correct_split_run = LoggedRun(test_english_model_correct_split,
-                                              "{}-{}-{}.txt".format(Configuration.english_correct_test_split[0],
-                                                                    Configuration.english_correct_test_split[1],
-                                                                    kenlm_extension))
+        english_on_english = LoggedRun(test_english_baseline,
+                                       "{}-{}-{}-on-English.txt".format(Configuration.english_baseline[0],
+                                                                        Configuration.english_baseline[1],
+                                                                        kenlm_extension))
 
         baseline_run = LoggedRun(lambda: Configuration.german().test_best_english_model(use_kenlm=use_kenlm),
                                  "{}-{}-{}.txt".format(Configuration.english_baseline[0],
                                                        Configuration.english_baseline[1],
                                                        kenlm_extension))
-        logged_runs = [english_correct_split_run, baseline_run] + [
+        logged_runs = [english_on_english, baseline_run] + [
             logged_german_run(model_name, epoch) for model_name, epoch in
             Configuration.german_model_names_with_epochs]
 
         logged_runs[index]()
 
-
-    test_german(use_kenlm=True, language_model_name_extension="")  # "-incl-trans")
+        # test_german(use_kenlm=False, language_model_name_extension="-incl-trans")
