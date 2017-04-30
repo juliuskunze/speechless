@@ -438,20 +438,9 @@ class Wav2Letter:
     def ctc_get_decoded_and_log_probability_batch(self, log_prediction_batch, prediction_length_batch):
         import tensorflow as tf
 
-        # The following extract from the the ctc_beam_search_decoder documentation seems to be misleading:
-        # "The `ctc_greedy_decoder` is a special case of the
-        # `ctc_beam_search_decoder` with `top_paths=1` and `beam_width=1` (but
-        # that decoder is faster for this special case)."
-
-        # Instead, the following results were observed when decoding "AA<ctc_blank>AA":
-        #                                                           merge_repeated=True         merge_repeated=False
-        # tf.nn.ctc_beam_search_decoder(top_paths=1, beam_width=1)  "A"                         "AA"
-        # tf.nn.ctc_greedy_decoder()                                "AA"                        "AAAA"
-
-        # This is confusing at minimum and probably not intended behaviour.
-
-        # Because "AA" is desired, ctc_beam_search_decoder is called with merge_repeated=False, while
-        # ctc_greedy_decoder is called with merge_repeated=True:
+        # Because "AA" is desired when decoding "AA<ctc_blank>AA",
+        # ctc_beam_search_decoder is called with merge_repeated=False,
+        # while ctc_greedy_decoder is called with merge_repeated=True (see test_ctc_decoders.py for explanation):
         if self.kenlm_directory is not None:
             return tf.nn.ctc_beam_search_decoder(inputs=log_prediction_batch,
                                                  sequence_length=prediction_length_batch,
