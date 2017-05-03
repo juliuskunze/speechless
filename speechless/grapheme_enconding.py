@@ -62,7 +62,7 @@ class GraphemeEncodingBase:
 
 
 class AsgGraphemeEncoding(GraphemeEncodingBase):
-    def __init__(self, allowed_characters: List[chr] = english_frequent_characters):
+    def __init__(self, allowed_characters: List[chr]):
         super().__init__(allowed_characters, special_grapheme_count=2)
 
         self.asg_twice = self.grapheme_set_size - 2
@@ -119,7 +119,7 @@ class AsgGraphemeEncoding(GraphemeEncodingBase):
 
 
 class CtcGraphemeEncoding(GraphemeEncodingBase):
-    def __init__(self, allowed_characters: List[chr] = english_frequent_characters):
+    def __init__(self, allowed_characters: List[chr]):
         super().__init__(allowed_characters, special_grapheme_count=1)
 
         # ctc blank must be last (see Tensorflow's ctcloss documentation):

@@ -50,8 +50,9 @@ if __name__ == '__main__':
 
     # Configuration.mixed_german_english().train_from_beginning()
 
-    Configuration.german().train_transfer_from_best_english_model(frozen_layer_count=0)
+    # Configuration.german().train_transfer_from_best_english_model(frozen_layer_count=0)
 
+    Configuration.english().train_from_beginning()
 
     def test_german(use_kenlm=False, language_model_name_extension="",
                     index: int = int(sys.argv[1])):
