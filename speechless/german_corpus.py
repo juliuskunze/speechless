@@ -7,10 +7,11 @@ from typing import Iterable, Dict, Callable, Optional, List, Tuple, Set
 from xml.etree import ElementTree
 
 from speechless.corpus import ParsingException, TrainingTestSplit, ComposedCorpus
-from speechless.english_corpus import LibriSpeechCorpus
-from speechless.grapheme_enconding import german_frequent_characters
+from speechless.english_corpus import LibriSpeechCorpus, english_frequent_characters
 from speechless.labeled_example import LabeledExample, PositionalLabel
 from speechless.tools import read_text, single, single_or_none, name_without_extension, group, log
+
+german_frequent_characters = english_frequent_characters + list("äöüß")
 
 _tags_to_ignore = [
     "<usb>",  # truncated in beginning or incomprehensible
@@ -285,7 +286,7 @@ vm1_id_german_filter_regex = re.compile("[klmngzjw][\s\S]*")
 # g(erman), e(nglish), j(apanese), m(ultilingual), n(oise)
 vm2_id_german_filter_regex = re.compile("g[\s\S]*|m[\s\S]*_GER")
 
-# example fiw1e020 from SC10 corpus has a wrong label (.par/.json is also inconsistent), exclude it:
+# example.py fiw1e020 from SC10 corpus has a wrong label (.par/.json is also inconsistent), exclude it:
 sc10_broken_label_filter_regex = re.compile("(?!^fiw1e020$)[\s\S]*")
 
 

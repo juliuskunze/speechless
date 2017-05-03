@@ -14,7 +14,7 @@ from lazy import lazy
 from numpy import ndarray, zeros, array, reshape, random, concatenate
 from typing import List, Callable, Iterable, Tuple, Dict, Optional
 
-from speechless.grapheme_enconding import CtcGraphemeEncoding, english_frequent_characters, AsgGraphemeEncoding
+from speechless.grapheme_enconding import CtcGraphemeEncoding, AsgGraphemeEncoding
 from speechless.labeled_example import LabeledSpectrogram
 from speechless.tools import average_or_nan, mkdir, single, read_text, log, single_or_none
 
@@ -125,7 +125,7 @@ class Wav2Letter:
 
     def __init__(self,
                  input_size_per_time_step: int,
-                 allowed_characters: List[chr] = english_frequent_characters,
+                 allowed_characters: List[chr],
                  use_raw_wave_input: bool = False,
                  activation: str = "relu",
                  output_activation: str = "softmax",
@@ -407,7 +407,7 @@ class Wav2Letter:
 
     @lazy
     def decoding_net(self):
-        decoding_layer = Lambda(self._decode_lambda, name='kenlm_decode')
+        decoding_layer = Lambda(self._decode_lambda, name='ctc_decode')
 
         prediction_batch = self.predictive_net(self._input_batch_input)
         decoded = decoding_layer([prediction_batch, self._prediction_lengths_input])

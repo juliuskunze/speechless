@@ -21,16 +21,15 @@ def restrict_gpu_memory(per_process_gpu_memory_fraction: float = 0.9):
 
 if __name__ == '__main__':
     if gethostname() == "ketos":
-        ketos_spectrogram_cache_base_directory = configuration.base_directory / "ketos-spectrogram-cache"
-        ketos_kenlm_base_directory = configuration.base_directory / "ketos-kenlm"
+        ketos_spectrogram_cache_base_directory = configuration.default_data_directories.data_directory / "ketos-spectrogram-cache"
+        ketos_kenlm_base_directory = configuration.default_data_directories.data_directory / "ketos-kenlm"
 
         log("Running on ketos, using spectrogram cache base directory {} and kenlm base directory {}".format(
             ketos_spectrogram_cache_base_directory, ketos_kenlm_base_directory))
-        configuration.spectrogram_cache_base_directory = ketos_spectrogram_cache_base_directory
-        configuration.kenlm_base_directory = ketos_kenlm_base_directory
+        configuration.default_data_directories.spectrogram_cache_base_directory = ketos_spectrogram_cache_base_directory
+        configuration.default_data_directories.kenlm_base_directory = ketos_kenlm_base_directory
     else:
         restrict_gpu_memory()
-
 
     # Configuration.german(from_cached=False).summarize_and_save_corpus()
 

@@ -7,6 +7,7 @@ import librosa
 import numpy
 from numpy import ndarray, abs, max, flipud, concatenate
 
+from speechless import configuration
 from speechless.labeled_example import LabeledExample
 from speechless.tools import timestamp, mkdir
 
@@ -88,13 +89,14 @@ class Recorder:
         return self._normalize(self._trim_silence(concatenate(chunks)))
 
     def record_to_file(self, path: Path) -> LabeledExample:
-        "Records from the microphone and outputs the resulting data to 'path'. Returns a labeled example for analysis."
+        "Records from the microphone and outputs the resulting data to 'path'. Returns a labeled example.py for analysis."
         librosa.output.write_wav(str(path), self.record(), self.sample_rate)
 
         return LabeledExample(path)
 
 
-def record_plot_and_save(recording_directory: Path) -> LabeledExample:
+def record_plot_and_save(
+        recording_directory: Path = configuration.default_data_directories.recording_directory) -> LabeledExample:
     from speechless.labeled_example_plotter import LabeledExamplePlotter
 
     print("Wait in silence to begin recording; wait in silence to terminate")

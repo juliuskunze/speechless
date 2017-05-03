@@ -1,12 +1,8 @@
-import string
 from abc import abstractmethod
 from itertools import groupby
 
 from numpy import argmax, ones, ndarray, array
 from typing import List
-
-english_frequent_characters = list(string.ascii_lowercase + " '")
-german_frequent_characters = english_frequent_characters + list("äöüß")
 
 
 class GraphemeEncodingBase:
@@ -44,7 +40,7 @@ class GraphemeEncodingBase:
 
     def decode_prediction_batch(self, prediction_batch: ndarray, prediction_lengths: List[int]) -> List[str]:
         """
-        :param prediction_batch: In shape (example, time, grapheme).
+        :param prediction_batch: In shape (example.py, time, grapheme).
         :param prediction_lengths:
         :return:
         """
@@ -53,7 +49,7 @@ class GraphemeEncodingBase:
     def decode_grapheme_batch(self, grapheme_batch: ndarray, prediction_lengths: List[int],
                               merge_repeated: bool = True) -> List[str]:
         """
-        :param grapheme_batch: In shape (example, time).
+        :param grapheme_batch: In shape (example.py, time).
         :param prediction_lengths:
         :return:
         """

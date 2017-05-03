@@ -10,38 +10,44 @@ from lazy import lazy
 from typing import List, Callable, Optional
 
 from speechless.corpus import LabeledSpectrogramBatchGenerator, Corpus, ComposedCorpus
-from speechless.english_corpus import english_corpus
+from speechless.english_corpus import english_corpus, minimal_english_corpus
+from speechless.english_corpus import english_frequent_characters
 from speechless.german_corpus import german_corpus
-from speechless.grapheme_enconding import english_frequent_characters, german_frequent_characters
+from speechless.german_corpus import german_frequent_characters
 from speechless.labeled_example import LabeledExample
 from speechless.net import Wav2Letter
 from speechless.tools import home_directory, timestamp, log, mkdir, write_text, logger
 
-base_directory = home_directory() / "speechless-data"
-tensorboard_log_base_directory = base_directory / "logs"
-nets_base_directory = base_directory / "nets"
-recording_directory = base_directory / "recordings"
-corpus_base_directory = base_directory / "corpus"
-spectrogram_cache_base_directory = base_directory / "spectrogram-cache"
-kenlm_base_directory = base_directory / "kenlm"
+
+class DataDirectories:
+    def __init__(self, data_directory: Path = home_directory() / "speechless-data"):
+        self.data_directory = data_directory
+        self.corpus_base_directory = data_directory / "corpus"
+        self.spectrogram_cache_base_directory = data_directory / "spectrogram-cache"
+        self.tensorboard_log_base_directory = data_directory / "logs"
+        self.nets_base_directory = data_directory / "nets"
+        self.kenlm_base_directory = data_directory / "kenlm"
+        self.recording_directory = data_directory / "recordings"
+
+
+default_data_directories = DataDirectories()
 
 
 class Configuration:
     def __init__(self,
                  name: str,
-                 allowed_characters: List[chr],
                  corpus_from_directory: Callable[[Path], Corpus],
-                 corpus_directory: Optional[Path] = None,
-                 spectrogram_cache_directory: Optional[Path] = None,
+                 allowed_characters: List[chr] = english_frequent_characters,
+                 directories: DataDirectories = default_data_directories,
                  mel_frequency_count: int = 128,
                  training_batches_per_epoch: int = 100,
                  batch_size: int = 64):
         self.training_batches_per_epoch = training_batches_per_epoch
         self.mel_frequency_count = mel_frequency_count
         self.name = name
-        self.spectrogram_cache_directory = spectrogram_cache_directory if spectrogram_cache_directory else \
-            spectrogram_cache_base_directory / name
-        self.corpus_directory = corpus_directory if corpus_directory else corpus_base_directory / name
+        self.directories = directories
+        self.spectrogram_cache_directory = directories.spectrogram_cache_base_directory / name
+        self.corpus_directory = directories.corpus_base_directory / name
         self.corpus_from_directory = corpus_from_directory
         self.allowed_characters = allowed_characters
         self.batch_size = batch_size
@@ -61,9 +67,11 @@ class Configuration:
 
     @staticmethod
     def english() -> 'Configuration':
-        return Configuration(name="English",
-                             allowed_characters=english_frequent_characters,
-                             corpus_from_directory=english_corpus)
+        return Configuration(name="English", corpus_from_directory=english_corpus)
+
+    @staticmethod
+    def minimal_english() -> 'Configuration':
+        return Configuration(name="English", corpus_from_directory=minimal_english_corpus)
 
     @staticmethod
     def german(from_cached: bool = True,
@@ -86,8 +94,8 @@ class Configuration:
 
     def train(self, wav2letter, run_name: str) -> None:
         wav2letter.train(self.batch_generator.training_batches(),
-                         tensor_board_log_directory=tensorboard_log_base_directory / run_name,
-                         net_directory=nets_base_directory / run_name,
+                         tensor_board_log_directory=self.directories.tensorboard_log_base_directory / run_name,
+                         net_directory=self.directories.nets_base_directory / run_name,
                          preview_labeled_spectrogram_batch=self.batch_generator.preview_batch(),
                          batches_per_epoch=self.training_batches_per_epoch)
 
@@ -155,12 +163,13 @@ class Configuration:
         return Wav2Letter(
             allowed_characters=self.allowed_characters,
             input_size_per_time_step=self.mel_frequency_count,
-            load_model_from_directory=nets_base_directory / load_name,
+            load_model_from_directory=self.directories.nets_base_directory / load_name,
             load_epoch=load_epoch,
             allowed_characters_for_loaded_model=allowed_characters_for_loaded_model,
             frozen_layer_count=frozen_layer_count,
             kenlm_directory=(
-                kenlm_base_directory / (self.name.lower() + language_model_name_extension)) if use_kenlm else None,
+                self.directories.kenlm_base_directory / (
+                    self.name.lower() + language_model_name_extension)) if use_kenlm else None,
             reinitialize_trainable_loaded_layers=reinitialize_trainable_loaded_layers)
 
     def load_best_english_model(self,
@@ -194,7 +203,6 @@ class Configuration:
     freeze8 = ("20170418-120145-adam-small-learning-rate-transfer-to-German-freeze-8", 1759)
     freeze9 = ("20170419-235043-adam-small-learning-rate-transfer-to-German-freeze-9", 1789)
     freeze10 = ("20170415-092748-adam-small-learning-rate-transfer-to-German-freeze-10", 1778)
-
 
     freeze8reinitialize = ("20170418-140152-adam-small-learning-rate-transfer-to-German-freeze-8-reinitialize", 1755)
     freeze8small = ("20170420-174046-adam-small-learning-rate-transfer-to-German-freeze-8-50000examples", 1809)
@@ -235,7 +243,7 @@ class Configuration:
 
 class LoggedRun:
     def __init__(self, action: Callable[[], None], name: str,
-                 results_directory: Path = base_directory / "test-results"):
+                 results_directory: Path = default_data_directories.data_directory / "test-results"):
         self.action = action
         self.name = name
         self.results_directory = results_directory
