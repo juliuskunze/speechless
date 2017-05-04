@@ -4,3 +4,4 @@ keras
 editdistance
 h5py
 matplotlib
+pyaudio

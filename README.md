@@ -14,8 +14,9 @@ Python 3.4+ and [TensorFlow](https://www.tensorflow.org/install/) are required.
 
 will install speechless together with minimal requirements.
 
+If you want to use the KenLM decoder, [this modified version](https://github.com/timediv/tensorflow-with-kenlm) of TensorFlow needs to be installed first.
 
-In some cases you need to install an audio backend, for example ffmpeg (with `brew install ffmpeg` on Mac OS).  
+You need to have an audio backend available, for example ffmpeg (run `brew install ffmpeg` on Mac OS).  
 
 ## Training
 
@@ -26,9 +27,13 @@ Configuration.minimal_english().train_from_beginning()
 ```
     
 will automatically download a small English example corpus (337MB), 
-train a net based on it while giving you updated loss and predictions. 
-Depending on the hardware you use for TensorFlow, training can take days until overfitting.
-
+train a net based on it while giving you updated loss and predictions.
+If you use a strong consumer-grade GPU, you should observe training predictions become similar to the input after ~12h, e. g.
+```
+Expected:  "just thrust and parry and victory to the stronger"
+Predicted: "jest thcrus and pary and bettor o the stronter"
+Errors: 10 letters (20%), 6 words (67%), loss: 37.19.
+```
 
 All data (corpus, nets, logs) will be stored in `~/speechless-data`.
 
@@ -48,7 +53,7 @@ To download and train on the full 1000h LibriSpeech corpus, replace `mininal_eng
 
 `main.py` contains various other functions that were executed to train and use models.
 
-## Loading & Testing on a testset
+## Loading & Testing
 
 By default, all trained models are stored in the `~/speechless-data/nets` directory after every 100 batches of training. 
 To load a previously trained model `load_model` there, use e. g. 
@@ -61,10 +66,9 @@ german = Configuration.german()
 
 wav2letter = german.load_model(
     load_name="20170314-134351-adam-small-learning-rate-complete-95",
-    load_epoch=1689, allowed_characters_for_loaded_model=english_frequent_characters).train_from_beginning()
+    load_epoch=1689, allowed_characters_for_loaded_model=english_frequent_characters)
 
 german.test_model_grouped_by_loaded_corpus_name(wav2letter)
-german
 ```
 
 If the language was originally trained with a different character set (e. g. a corpus of another language),
@@ -72,34 +76,22 @@ specifying `allowed_characters_for_loaded_model` still allows you to use that mo
 
 Testing will write to the standard output and a log to `~/speechless-data/test-results` by default.
 
-## Testing with microphone recordings
+## Recording
 
-Your model can be tested using microphone:
-
-### Recording
-
-To record your own audio, run `pip3 install pyaudio`.
-
-To save and plot a microphone recording, your can call `record_plot_and_save`: 
+You can record your own audio with a microphone and get a prediction for it:
 ```python
 from speechless.recording import record_plot_and_save
 from speechless.configuration import Configuration
 
 label = record_plot_and_save()
 
-# This can directly be used to get a prediction for that recording of a model:
 wav2letter = Configuration.german().load_model(load_name="some_model", load_epoch=42)
 wav2letter.predict(label)
 ```
 
-You have to be quite for some seconds to end the recording, silence will automatically be truncated.
+Three seconds of silence will automatically end the recording and silence will automatically be truncated.
 By default, this will store a `wav`-file and a spectrogram plot into `~/speechless-data/recordings`.
 
 ### Input plotting
 
 Plotting labeled audio examples from the corpus like this one [here](https://docs.google.com/presentation/d/1X30IcB-CzCxnGt780ze0qOrbsRtDrxbWrZ_zQ91TOZQ/edit#slide=id.g1b9173e933_0_15) can be done with `LabeledExamplePlotter.save_spectrogram`.
-
-
-### KenLM decoder
-
-If you want to use the KenLM decoder, [this modified version](https://github.com/timediv/tensorflow-with-kenlm) of TensorFlow needs to be installed first.
