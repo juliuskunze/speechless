@@ -53,44 +53,50 @@ To download and train on the full 1000h LibriSpeech corpus, replace `mininal_eng
 
 `main.py` contains various other functions that were executed to train and use models.
 
-## Loading & Testing
+## Loading
 
-By default, all trained models are stored in the `~/speechless-data/nets` directory after every 100 batches of training. 
-To load a previously trained model `load_model` there, use e. g. 
+By default, all trained models are stored in the `~/speechless-data/nets` directory. 
+You use models from [here](https://drive.google.com/drive/folders/0B0Azt-a50ylyal9JVDJnbXJJd2c?usp=sharing) by downloading them into this folder (keep the subfolder from Google Drive).
+To load a such a model use `load_model` or `load_german_model` e. g.
 
 ```python
 from speechless.configuration import Configuration
-from speechless.english_corpus import english_frequent_characters
 
 german = Configuration.german()
 
-wav2letter = german.load_model(
-    load_name="20170314-134351-adam-small-learning-rate-complete-95",
-    load_epoch=1689, allowed_characters_for_loaded_model=english_frequent_characters)
-
-german.test_model_grouped_by_loaded_corpus_name(wav2letter)
+wav2letter = german.load_german_model(load_name="20170420-001258-adam-small-learning-rate-transfer-to-German-freeze-0", load_epoch=2066)
 ```
 
 If the language was originally trained with a different character set (e. g. a corpus of another language),
-specifying `allowed_characters_for_loaded_model` still allows you to use that model for training, thereby allowing transfer learning. 
-
-Testing will write to the standard output and a log to `~/speechless-data/test-results` by default.
+specifying the `allowed_characters_for_loaded_model` parameter of `load_model` still allows you to use that model for training, 
+thereby allowing transfer learning. 
 
 ## Recording
 
 You can record your own audio with a microphone and get a prediction for it:
 ```python
+# ... after loading a model, see above
+
 from speechless.recording import record_plot_and_save
-from speechless.configuration import Configuration
 
 label = record_plot_and_save()
 
-wav2letter = Configuration.german().load_model(load_name="some_model", load_epoch=42)
 print(wav2letter.predict(label))
 ```
 
 Three seconds of silence will end the recording and silence will be truncated.
 By default, this will generate a `wav`-file and a spectrogram plot in `~/speechless-data/recordings`.
+
+
+## Testing
+
+Given that you downloaded the German corpus into the corpus directory, you can evaluate the German model on the test set:
+
+```python
+german.test_model_grouped_by_loaded_corpus_name(wav2letter)
+```
+
+Testing will write to the standard output and a log to `~/speechless-data/test-results` by default.
 
 ## Plotting
 
