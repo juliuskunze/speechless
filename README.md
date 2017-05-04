@@ -92,6 +92,6 @@ wav2letter.predict(label)
 Three seconds of silence will automatically end the recording and silence will automatically be truncated.
 By default, this will store a `wav`-file and a spectrogram plot into `~/speechless-data/recordings`.
 
-### Input plotting
+## Plotting
 
 Plotting labeled audio examples from the corpus like this one [here](https://docs.google.com/presentation/d/1X30IcB-CzCxnGt780ze0qOrbsRtDrxbWrZ_zQ91TOZQ/edit#slide=id.g1b9173e933_0_15) can be done with `LabeledExamplePlotter.save_spectrogram`.

@@ -52,10 +52,10 @@ if __name__ == '__main__':
 
     # Configuration.german().train_transfer_from_best_english_model(frozen_layer_count=0)
 
-    Configuration.english().train_from_beginning()
+    # Configuration.english().train_from_beginning()
 
-    def test_german(use_kenlm=False, language_model_name_extension="",
-                    index: int = int(sys.argv[1])):
+    def german(use_kenlm=False, language_model_name_extension="",
+               index: int = int(sys.argv[1])):
         kenlm_extension = ("kenlm" + language_model_name_extension) if use_kenlm else "greedy"
 
         def logged_german_run(model_name: str, epoch: int) -> LoggedRun:
@@ -89,4 +89,4 @@ if __name__ == '__main__':
 
         logged_runs[index]()
 
-        # test_german(use_kenlm=False, language_model_name_extension="-incl-trans")
+        # german(use_kenlm=False, language_model_name_extension="-incl-trans")
