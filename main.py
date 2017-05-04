@@ -3,6 +3,7 @@ from socket import gethostname
 
 from speechless import configuration
 from speechless.configuration import Configuration, LoggedRun
+from speechless.recording import record_plot_and_save
 from speechless.tools import log
 
 
@@ -31,6 +32,7 @@ if __name__ == '__main__':
     else:
         restrict_gpu_memory()
 
+
     # Configuration.german(from_cached=False).summarize_and_save_corpus()
 
     # Configuration.german().fill_cache(repair_incorrect=True)
@@ -54,8 +56,18 @@ if __name__ == '__main__':
 
     # Configuration.english().train_from_beginning()
 
+    wav2letter = Configuration.german().load_german_model(load_name=Configuration.freeze0day4hour7[0],
+                                                          load_epoch=Configuration.freeze0day4hour7[1],
+                                                          use_ken_lm=False)
+
+    recording = record_plot_and_save()
+    # recording = LabeledExample(audio_file=configuration.default_data_directories.recording_directory / "recording-20170504-112527.wav")
+
+    print(wav2letter.predict(recording))
+
+
     def german(use_kenlm=False, language_model_name_extension="",
-               index: int = int(sys.argv[1])):
+               index: int = int(sys.argv[1] if len(sys.argv) == 2 else 0)):
         kenlm_extension = ("kenlm" + language_model_name_extension) if use_kenlm else "greedy"
 
         def logged_german_run(model_name: str, epoch: int) -> LoggedRun:

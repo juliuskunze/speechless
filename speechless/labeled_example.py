@@ -62,7 +62,7 @@ class LabeledExample(LabeledSpectrogram):
                  audio_file: Path,
                  id: Optional[str] = None,
                  sample_rate_to_convert_to: int = 16000,
-                 label: Optional[str] = None,
+                 label: Optional[str] = "nolabel",
                  fourier_window_length: int = 512,
                  hop_length: int = 128,
                  mel_frequency_count: int = 128,

@@ -489,7 +489,10 @@ class Wav2Letter:
                                                               prediction_lengths=prediction_lengths)
 
     def test_and_predict(self, labeled_spectrogram: LabeledSpectrogram) -> ExpectationVsPrediction:
-        return single(self.test_and_predict_batch([labeled_spectrogram]).results)
+        # batches of size 1 yielded
+        # "InvalidArgumentError (see above for traceback): slice index 0 of dimension 0 out of bounds."
+        # TODO fix, this is a workaround
+        return self.test_and_predict_batch([labeled_spectrogram, labeled_spectrogram]).results[0]
 
     def predict(self, labeled_spectrogram: LabeledSpectrogram) -> str:
         return self.test_and_predict(labeled_spectrogram).predicted
@@ -593,12 +596,12 @@ class Wav2Letter:
 
         # Sets learning phase to training to enable dropout (see backend.learning_phase documentation for more info):
         training_phase_flag_tensor = array([True])
+        label_lengths = reshape(array([len(label) for label in labels]), (len(labeled_spectrogram_batch), 1))
         return {
             Wav2Letter.InputNames.input_batch: input_batch,
             Wav2Letter.InputNames.prediction_lengths: self._prediction_length_batch(prediction_lengths,
                                                                                     batch_size=len(spectrograms)),
             Wav2Letter.InputNames.label_batch: self.grapheme_encoding.encode_label_batch(labels),
-            Wav2Letter.InputNames.label_lengths: reshape(array([len(label) for label in labels]),
-                                                         (len(labeled_spectrogram_batch), 1)),
+            Wav2Letter.InputNames.label_lengths: label_lengths,
             'keras_learning_phase': training_phase_flag_tensor
         }

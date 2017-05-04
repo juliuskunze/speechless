@@ -86,11 +86,11 @@ from speechless.configuration import Configuration
 label = record_plot_and_save()
 
 wav2letter = Configuration.german().load_model(load_name="some_model", load_epoch=42)
-wav2letter.predict(label)
+print(wav2letter.predict(label))
 ```
 
-Three seconds of silence will automatically end the recording and silence will automatically be truncated.
-By default, this will store a `wav`-file and a spectrogram plot into `~/speechless-data/recordings`.
+Three seconds of silence will end the recording and silence will be truncated.
+By default, this will generate a `wav`-file and a spectrogram plot in `~/speechless-data/recordings`.
 
 ## Plotting
 
