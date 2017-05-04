@@ -41,6 +41,8 @@ class Recorder:
     def record(self):
         """Records from the microphone and returns the data as an array of signed shorts."""
 
+        print("Wait in silence to begin recording; wait in silence to terminate")
+
         import pyaudio
 
         p = pyaudio.PyAudio()
@@ -89,7 +91,7 @@ class Recorder:
         return self._normalize(self._trim_silence(concatenate(chunks)))
 
     def record_to_file(self, path: Path) -> LabeledExample:
-        "Records from the microphone and outputs the resulting data to 'path'. Returns a labeled example.py for analysis."
+        "Records from the microphone and outputs the resulting data to 'path'. Returns a labeled example for analysis."
         librosa.output.write_wav(str(path), self.record(), self.sample_rate)
 
         return LabeledExample(path)
@@ -99,7 +101,6 @@ def record_plot_and_save(
         recording_directory: Path = configuration.default_data_directories.recording_directory) -> LabeledExample:
     from speechless.labeled_example_plotter import LabeledExamplePlotter
 
-    print("Wait in silence to begin recording; wait in silence to terminate")
     mkdir(recording_directory)
     name = "recording-{}".format(timestamp())
     example = Recorder().record_to_file(recording_directory / "{}.wav".format(name))
