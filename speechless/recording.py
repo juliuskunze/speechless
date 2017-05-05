@@ -8,7 +8,7 @@ import numpy
 from numpy import ndarray, abs, max, flipud, concatenate
 
 from speechless import configuration
-from speechless.labeled_example import LabeledExample
+from speechless.labeled_example import LabeledExample, LabeledExampleFromFile
 from speechless.tools import timestamp, mkdir
 
 
@@ -94,7 +94,7 @@ class Recorder:
         "Records from the microphone and outputs the resulting data to 'path'. Returns a labeled example for analysis."
         librosa.output.write_wav(str(path), self.record(), self.sample_rate)
 
-        return LabeledExample(path)
+        return LabeledExampleFromFile(path)
 
 
 def record_plot_and_save(

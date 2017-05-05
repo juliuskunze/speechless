@@ -8,7 +8,8 @@ from pathlib import Path
 from collections import OrderedDict
 from typing import List, Iterable, Callable, Tuple, Any, Optional, TypeVar, Dict
 
-from speechless.labeled_example import LabeledExample, LabeledSpectrogram, CachedLabeledSpectrogram
+from speechless.labeled_example import LabeledExample, LabeledSpectrogram, CachedLabeledSpectrogram, \
+    LabeledExampleFromFile
 from speechless.tools import group, paginate, mkdir, duplicates, log
 
 
@@ -94,7 +95,8 @@ class Corpus:
                     corpus_csv_file.parent) / audio_file_path
 
             examples = [
-                (LabeledExample(audio_file=to_absolute(Path(audio_file_path)), id=id, label=label), Phase[phase])
+                (
+                LabeledExampleFromFile(audio_file=to_absolute(Path(audio_file_path)), id=id, label=label), Phase[phase])
                 for id, audio_file_path, label, phase in reader]
 
             return Corpus(training_examples=[e for e, phase in examples if phase == Phase.training],
@@ -178,8 +180,9 @@ class TrainingTestSplit:
 
     @staticmethod
     def by_directory(test_directory_name: str = "test") -> Callable[
-        [List[LabeledExample]], Tuple[List[LabeledExample], List[LabeledExample]]]:
-        def split(examples: List[LabeledExample]) -> Tuple[List[LabeledExample], List[LabeledExample]]:
+        [List[LabeledExampleFromFile]], Tuple[List[LabeledExampleFromFile], List[LabeledExampleFromFile]]]:
+        def split(examples: List[LabeledExampleFromFile]) -> Tuple[
+            List[LabeledExampleFromFile], List[LabeledExampleFromFile]]:
             training_examples = [example for example in examples if example.audio_directory.name != test_directory_name]
             test_examples = [example for example in examples if example.audio_directory.name == test_directory_name]
 

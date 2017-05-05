@@ -13,10 +13,11 @@ from typing import Iterable, Optional, List, Callable, Tuple, Dict
 from urllib import request
 
 from speechless.corpus import Corpus, TrainingTestSplit, ComposedCorpus
-from speechless.labeled_example import LabeledExample, PositionalLabel
+from speechless.labeled_example import LabeledExample, PositionalLabel, LabeledExampleFromFile
 from speechless.tools import mkdir, name_without_extension, count_summary, distinct, extension, log
 
 english_frequent_characters = list(string.ascii_lowercase + " '")
+
 
 class LibriSpeechCorpus(Corpus):
     def __init__(self,
@@ -85,11 +86,11 @@ class LibriSpeechCorpus(Corpus):
             original_positional_label = positional_label_by_id[id]
             positional_label = original_positional_label.with_corrected_words(correct)
 
-            return LabeledExample(audio_file,
-                                  mel_frequency_count=self.mel_frequency_count,
-                                  label=positional_label.label,
-                                  original_label=original_positional_label.label,
-                                  positional_label=positional_label)
+            return LabeledExampleFromFile(audio_file,
+                                          mel_frequency_count=self.mel_frequency_count,
+                                          label=positional_label.label,
+                                          label_with_tags=original_positional_label.label,
+                                          positional_label=positional_label)
 
         self.examples_with_empty_and_too_long_or_short = [example(file) for file in audio_files if
                                                           name_without_extension(file) in positional_label_by_id.keys()]
@@ -307,6 +308,7 @@ class LibriSpeechCorpus(Corpus):
 def dev_clean(base_directory: Path) -> LibriSpeechCorpus:
     return LibriSpeechCorpus(base_directory=base_directory, corpus_name="dev-clean",
                              training_test_split=TrainingTestSplit.training_only)
+
 
 def english_corpus(base_directory: Path) -> ComposedCorpus:
     return ComposedCorpus([

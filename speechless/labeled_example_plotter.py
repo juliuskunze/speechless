@@ -36,7 +36,7 @@ class LabeledExamplePlotter:
         return path
 
     def plot_raw_audio(self) -> None:
-        self._plot_audio(self.example.raw_audio())
+        self._plot_audio(self.example.get_raw_audio())
 
     def prepare_spectrogram_plot(self, type: SpectrogramType = SpectrogramType.power_level,
                                  frequency_scale: SpectrogramFrequencyScale = SpectrogramFrequencyScale.linear) -> None:

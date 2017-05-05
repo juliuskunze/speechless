@@ -59,17 +59,15 @@ class LabeledSpectrogram:
 
 class LabeledExample(LabeledSpectrogram):
     def __init__(self,
-                 audio_file: Path,
+                 get_raw_audio: Callable[[], ndarray],
+                 sample_rate: int = 16000,
                  id: Optional[str] = None,
-                 sample_rate_to_convert_to: int = 16000,
                  label: Optional[str] = "nolabel",
                  fourier_window_length: int = 512,
                  hop_length: int = 128,
                  mel_frequency_count: int = 128,
-                 original_label: str = None,
+                 label_with_tags: str = None,
                  positional_label: PositionalLabel = None):
-        if id is None:
-            id = name_without_extension(audio_file)
 
         if positional_label is None:
             positional_label = PositionalLabel.without_positions(label)
@@ -77,30 +75,16 @@ class LabeledExample(LabeledSpectrogram):
         super().__init__(id=id, label=label)
 
         # The default values for hop_length and fourier_window_length are powers of 2 near the values specified in the wave2letter paper.
-        self.audio_file = audio_file
-        self.sample_rate = sample_rate_to_convert_to
+        self.get_raw_audio = get_raw_audio
+        self.sample_rate = sample_rate
         self.fourier_window_length = fourier_window_length
         self.hop_length = hop_length
         self.mel_frequency_count = mel_frequency_count
-        self.original_label_with_tags = original_label
+        self.label_with_tags = label_with_tags
         self.positional_label = positional_label
 
-    @property
-    def audio_directory(self):
-        return Path(self.audio_file.parent)
-
     def tag_count(self, tag: str) -> int:
-        return self.original_label_with_tags.count(tag)
-
-    def raw_audio(self) -> ndarray:
-        y, sample_rate = librosa.load(str(self.audio_file), sr=self.sample_rate)
-
-        return y
-
-    @lazy
-    def original_sample_rate(self) -> int:
-        with audioread.audio_open(os.path.realpath(str(self.audio_file))) as input_file:
-            return input_file.samplerate
+        return self.label_with_tags.count(tag)
 
     def _power_spectrogram(self) -> ndarray:
         return self._amplitude_spectrogram() ** 2
@@ -109,7 +93,7 @@ class LabeledExample(LabeledSpectrogram):
         return abs(self._complex_spectrogram())
 
     def _complex_spectrogram(self) -> ndarray:
-        return librosa.stft(y=self.raw_audio(), n_fft=self.fourier_window_length, hop_length=self.hop_length)
+        return librosa.stft(y=self.get_raw_audio(), n_fft=self.fourier_window_length, hop_length=self.hop_length)
 
     def mel_frequencies(self) -> List[float]:
         # according to librosa.filters.mel code
@@ -122,14 +106,6 @@ class LabeledExample(LabeledSpectrogram):
 
     def highest_detectable_frequency(self) -> float:
         return self.sample_rate / 2
-
-    @lazy
-    def duration_in_s(self) -> float:
-        try:
-            return librosa.get_duration(filename=str(self.audio_file))
-        except Exception as e:
-            log("Failed to get duration of {}: {}".format(self.audio_file, e))
-            return 0
 
     def spectrogram(self, type: SpectrogramType = SpectrogramType.power_level,
                     frequency_scale: SpectrogramFrequencyScale = SpectrogramFrequencyScale.linear) -> ndarray:
@@ -176,6 +152,52 @@ class LabeledExample(LabeledSpectrogram):
     def reconstructed_audio_from_spectrogram(self) -> ndarray:
         return librosa.istft(self._complex_spectrogram(), win_length=self.fourier_window_length,
                              hop_length=self.hop_length)
+
+    @lazy
+    def duration_in_s(self) -> float:
+        return self.get_raw_audio().shape[1] / self.sample_rate
+
+
+class LabeledExampleFromFile(LabeledExample):
+    def __init__(self,
+                 audio_file: Path,
+                 id: Optional[str] = None,
+                 sample_rate_to_convert_to: int = 16000,
+                 label: Optional[str] = "nolabel",
+                 fourier_window_length: int = 512,
+                 hop_length: int = 128,
+                 mel_frequency_count: int = 128,
+                 label_with_tags: str = None,
+                 positional_label: PositionalLabel = None):
+        # The default values for hop_length and fourier_window_length are powers of 2 near the values specified in the wave2letter paper.
+
+        if id is None:
+            id = name_without_extension(audio_file)
+
+        self.audio_file = audio_file
+
+        super().__init__(
+            id=id, get_raw_audio=lambda: librosa.load(str(self.audio_file), sr=self.sample_rate)[0],
+            label=label, sample_rate=sample_rate_to_convert_to,
+            fourier_window_length=fourier_window_length, hop_length=hop_length, mel_frequency_count=mel_frequency_count,
+            label_with_tags=label_with_tags, positional_label=positional_label)
+
+    @property
+    def audio_directory(self):
+        return Path(self.audio_file.parent)
+
+    @lazy
+    def original_sample_rate(self) -> int:
+        with audioread.audio_open(os.path.realpath(str(self.audio_file))) as input_file:
+            return input_file.samplerate
+
+    @lazy
+    def duration_in_s(self) -> float:
+        try:
+            return librosa.get_duration(filename=str(self.audio_file))
+        except Exception as e:
+            log("Failed to get duration of {}: {}".format(self.audio_file, e))
+            return 0
 
     def __str__(self) -> str:
         return self.id + (": {}".format(self.label) if self.label else "")

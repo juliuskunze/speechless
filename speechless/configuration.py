@@ -14,7 +14,7 @@ from speechless.english_corpus import english_corpus, minimal_english_corpus
 from speechless.english_corpus import english_frequent_characters
 from speechless.german_corpus import german_corpus
 from speechless.german_corpus import german_frequent_characters
-from speechless.labeled_example import LabeledExample
+from speechless.labeled_example import LabeledExampleFromFile
 from speechless.net import Wav2Letter
 from speechless.tools import home_directory, timestamp, log, mkdir, write_text, logger
 
@@ -123,7 +123,7 @@ class Configuration:
         log(wav2letter.test_and_predict_batches(self.batch_generator.test_batches()))
 
     def test_model_grouped_by_loaded_corpus_name(self, wav2letter):
-        def corpus_name(example: LabeledExample) -> str:
+        def corpus_name(example: LabeledExampleFromFile) -> str:
             return example.audio_directory.relative_to(self.corpus_directory).parts[0]
 
         corpus_by_name = self.corpus.grouped_by(corpus_name)

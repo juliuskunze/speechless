@@ -3,7 +3,7 @@ from socket import gethostname
 
 from speechless import configuration
 from speechless.configuration import Configuration, LoggedRun
-from speechless.recording import record_plot_and_save
+from speechless.labeled_example import LabeledExampleFromFile
 from speechless.tools import log
 
 
@@ -32,7 +32,6 @@ if __name__ == '__main__':
     else:
         restrict_gpu_memory()
 
-
     # Configuration.german(from_cached=False).summarize_and_save_corpus()
 
     # Configuration.german().fill_cache(repair_incorrect=True)
@@ -60,8 +59,9 @@ if __name__ == '__main__':
                                                           load_epoch=Configuration.freeze0day4hour7[1],
                                                           use_ken_lm=False)
 
-    recording = record_plot_and_save()
-    # recording = LabeledExample(audio_file=configuration.default_data_directories.recording_directory / "recording-20170504-112527.wav")
+    # recording = record_plot_and_save()
+    recording = LabeledExampleFromFile(
+        audio_file=configuration.default_data_directories.recording_directory / "recording-20170504-112527.wav")
 
     print(wav2letter.predict(recording))
 
