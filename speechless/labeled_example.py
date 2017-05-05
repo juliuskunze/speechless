@@ -155,7 +155,7 @@ class LabeledExample(LabeledSpectrogram):
 
     @lazy
     def duration_in_s(self) -> float:
-        return self.get_raw_audio().shape[1] / self.sample_rate
+        return len(self.get_raw_audio()) / self.sample_rate
 
 
 class LabeledExampleFromFile(LabeledExample):
