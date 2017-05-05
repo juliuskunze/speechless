@@ -157,6 +157,8 @@ class LabeledExample(LabeledSpectrogram):
     def duration_in_s(self) -> float:
         return len(self.get_raw_audio()) / self.sample_rate
 
+    def __str__(self) -> str:
+        return self.id + (": {}".format(self.label) if self.label else "")
 
 class LabeledExampleFromFile(LabeledExample):
     def __init__(self,
@@ -198,10 +200,6 @@ class LabeledExampleFromFile(LabeledExample):
         except Exception as e:
             log("Failed to get duration of {}: {}".format(self.audio_file, e))
             return 0
-
-    def __str__(self) -> str:
-        return self.id + (": {}".format(self.label) if self.label else "")
-
 
 class CachedLabeledSpectrogram(LabeledSpectrogram):
     def __init__(self, original: LabeledSpectrogram, spectrogram_cache_directory: Path):
