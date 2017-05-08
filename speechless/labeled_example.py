@@ -30,20 +30,34 @@ def z_normalize(array: ndarray) -> ndarray:
 
 
 class PositionalLabel:
-    def __init__(self, words_with_ranges: List[Tuple[str, Optional[Tuple[int, int]]]]):
-        self.words_with_ranges = words_with_ranges
-        self.words = [word for word, range in words_with_ranges]
-        self.label = " ".join(word for word in self.words if word)
+    def __init__(self, labeled_sections: List[Tuple[str, Tuple[float, float]]]):
+        if not labeled_sections:
+            raise ValueError("Sections must be specified.")
+
+        if any(range is None for label, range in labeled_sections):
+            raise ValueError("Range must be specified.")
+
+        self.labeled_sections = labeled_sections
+        self.labels = [word for word, range in labeled_sections]
+        self.label = " ".join(word for word in self.labels)
+
+    def convert_range_to_seconds(self, original_sample_rate: int) -> 'PositionalLabel':
+        return PositionalLabel(list(
+            (word, (start_end[0] / original_sample_rate, start_end[1] / original_sample_rate))
+            for word, start_end in self.labeled_sections))
+
+    def with_corrected_labels(self, correction: Callable[[str], str]) -> 'PositionalLabel':
+        return PositionalLabel([(correction(section), range) for section, range in self.labeled_sections])
+
+    def serialize(self) -> str:
+        return "\n".join("{}|{}|{}".format(label, start, end) for label, (start, end) in
+                         self.labeled_sections)
 
     @staticmethod
-    def without_positions(label: str) -> 'PositionalLabel':
-        return PositionalLabel([(label, None)])
-
-    def with_corrected_words(self, correction: Callable[[str], str]) -> 'PositionalLabel':
-        return PositionalLabel([(correction(word), range) for word, range in self.words_with_ranges])
-
-    def has_positions(self) -> bool:
-        return len(self.words_with_ranges) == 0 or self.words_with_ranges[0][1] is not None
+    def deserialize(serialized: str) -> 'PositionalLabel':
+        return PositionalLabel(list((label, (float(start), float(end)))
+                                    for label, start, end in
+                                    map(lambda item: item.split("|"), serialized.splitlines())))
 
 
 class LabeledSpectrogram:
@@ -67,11 +81,7 @@ class LabeledExample(LabeledSpectrogram):
                  hop_length: int = 128,
                  mel_frequency_count: int = 128,
                  label_with_tags: str = None,
-                 positional_label: PositionalLabel = None):
-
-        if positional_label is None:
-            positional_label = PositionalLabel.without_positions(label)
-
+                 positional_label: Optional[PositionalLabel] = None):
         super().__init__(id=id, label=label)
 
         # The default values for hop_length and fourier_window_length are powers of 2 near the values specified in the wave2letter paper.
@@ -160,6 +170,7 @@ class LabeledExample(LabeledSpectrogram):
     def __str__(self) -> str:
         return self.id + (": {}".format(self.label) if self.label else "")
 
+
 class LabeledExampleFromFile(LabeledExample):
     def __init__(self,
                  audio_file: Path,
@@ -170,7 +181,7 @@ class LabeledExampleFromFile(LabeledExample):
                  hop_length: int = 128,
                  mel_frequency_count: int = 128,
                  label_with_tags: str = None,
-                 positional_label: PositionalLabel = None):
+                 positional_label: Optional[PositionalLabel] = None):
         # The default values for hop_length and fourier_window_length are powers of 2 near the values specified in the wave2letter paper.
 
         if id is None:
@@ -190,7 +201,11 @@ class LabeledExampleFromFile(LabeledExample):
 
     @lazy
     def original_sample_rate(self) -> int:
-        with audioread.audio_open(os.path.realpath(str(self.audio_file))) as input_file:
+        return LabeledExampleFromFile.file_sample_rate(self.audio_file)
+
+    @staticmethod
+    def file_sample_rate(audio_file: Path) -> int:
+        with audioread.audio_open(os.path.realpath(str(audio_file))) as input_file:
             return input_file.samplerate
 
     @lazy
@@ -200,6 +215,23 @@ class LabeledExampleFromFile(LabeledExample):
         except Exception as e:
             log("Failed to get duration of {}: {}".format(self.audio_file, e))
             return 0
+
+    def sections(self) -> Optional[List[LabeledExample]]:
+        if self.positional_label is None:
+            return None
+
+        audio = self.get_raw_audio()
+
+        def section(label, start, end):
+            return LabeledExample(
+                get_raw_audio=lambda: audio[int(start * self.sample_rate):int(end * self.sample_rate)],
+                label=label,
+                sample_rate=self.sample_rate,
+                fourier_window_length=self.fourier_window_length, hop_length=self.hop_length,
+                mel_frequency_count=self.mel_frequency_count)
+
+        return [section(label, start, end) for label, (start, end) in self.positional_label.labeled_sections]
+
 
 class CachedLabeledSpectrogram(LabeledSpectrogram):
     def __init__(self, original: LabeledSpectrogram, spectrogram_cache_directory: Path):

@@ -3,7 +3,7 @@ import re
 from pathlib import Path
 
 from collections import OrderedDict
-from typing import Iterable, Dict, Callable, Optional, List, Tuple, Set
+from typing import Iterable, Dict, Callable, Optional, List, Tuple, Set, Union
 from xml.etree import ElementTree
 
 from speechless.corpus import ParsingException, TrainingTestSplit, ComposedCorpus
@@ -80,7 +80,7 @@ class GermanClarinCorpus(LibriSpeechCorpus):
                          maximum_example_duration_in_s=35,
                          minimum_duration_per_character=2 * 2 * 128 / 16000)
 
-    def _extract_positional_label_by_id(self, files: Iterable[Path]) -> Dict[str, PositionalLabel]:
+    def _extract_positional_label_by_id(self, files: Iterable[Path]) -> Dict[str, Union[PositionalLabel, str]]:
         json_ending = "_annot.json"
         json_annotation_files = \
             [file for file in files if file.name.endswith(json_ending) and
@@ -95,13 +95,14 @@ class GermanClarinCorpus(LibriSpeechCorpus):
                                 and self.id_filter_regex.match(name_without_extension(file).lower())]
 
         extracted = OrderedDict(
-            (name_without_extension(file), self._extract_positional_label_from_par(file)) for file in
+            (name_without_extension(file), self._extract_label_from_par(file)) for file in
             par_annotation_files)
 
         for key in set(extracted.keys()).intersection(set(json_extracted.keys())):
-            if extracted[key].words != json_extracted[key].words:
-                log('{}: Words {} extracted from par differ from json {}'.format(key, extracted[key].words,
-                                                                                 json_extracted[key].words))
+            json = json_extracted[key]
+            json_label = json if isinstance(json, str) else json.label
+            if extracted[key] != json_label:
+                log('{}: "{}" extracted from par differ from json "{}"'.format(key, extracted[key], json_label))
 
         # json has positional information and overrides par
         extracted.update(json_extracted)
@@ -119,7 +120,7 @@ class GermanClarinCorpus(LibriSpeechCorpus):
 
         return extracted
 
-    def _extract_positional_label_from_json(self, json_file: Path) -> PositionalLabel:
+    def _extract_positional_label_from_json(self, json_file: Path) -> Union[PositionalLabel, str]:
         json_text = read_text(json_file, encoding='utf8')
 
         try:
@@ -210,12 +211,17 @@ class GermanClarinCorpus(LibriSpeechCorpus):
 
                 return merge_consecutive_ranges(ranges) if ranges else None
 
-            return PositionalLabel([(word, sample_range_or_none_by_word_id(id)) for word, id in zip(words, ids)])
+            words_with_ranges = [(word, sample_range_or_none_by_word_id(id)) for word, id in zip(words, ids)]
+
+            if len(words_with_ranges) == 0 or any(range is None for word, range in words_with_ranges):
+                return " ".join(word for word, range in words_with_ranges)
+
+            return PositionalLabel(words_with_ranges)
 
         except Exception:
             raise ParsingException("Error parsing annotation {}: {}".format(json_file, json_text[:500]))
 
-    def _extract_positional_label_from_par(self, par_file: Path) -> PositionalLabel:
+    def _extract_label_from_par(self, par_file: Path) -> str:
         par_text = ""
 
         try:
@@ -224,9 +230,7 @@ class GermanClarinCorpus(LibriSpeechCorpus):
             def words_for_label(label_name: str):
                 return [line.split("\t")[-1] for line in par_text.splitlines() if line.startswith(label_name)]
 
-            return PositionalLabel(
-                [(word, None) for word in
-                 self._merge_transcriptions_and_decode(words_for_label("ORT"), words_for_label("TR2"))])
+            return " ".join(self._merge_transcriptions_and_decode(words_for_label("ORT"), words_for_label("TR2")))
         except Exception:
             raise ParsingException("Error parsing annotation {}: {}".format(par_file, par_text[:500]))
 
@@ -352,7 +356,7 @@ class GermanVoxforgeCorpus(GermanClarinCorpus):
                                        "(?!^2014-06-17-13-46-27_Yamaha)"
                                        "(^.*$)"))
 
-    def _extract_positional_label_by_id(self, files: Iterable[Path]) -> Dict[str, PositionalLabel]:
+    def _extract_positional_label_by_id(self, files: Iterable[Path]) -> Dict[str, Union[PositionalLabel, str]]:
         xml_ending = ".xml"
 
         microphone_endings = [
@@ -369,7 +373,7 @@ class GermanVoxforgeCorpus(GermanClarinCorpus):
 
         return OrderedDict(
             (name_without_extension(file) + microphone_ending,
-             PositionalLabel.without_positions(self._extract_label_from_xml(file)))
+             self._extract_label_from_xml(file))
             for file in xml_files
             for microphone_ending in microphone_endings
             if (Path(file.parent) / (name_without_extension(file) + microphone_ending + ".wav")).exists())

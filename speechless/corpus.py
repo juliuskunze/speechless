@@ -9,7 +9,7 @@ from collections import OrderedDict
 from typing import List, Iterable, Callable, Tuple, Any, Optional, TypeVar, Dict
 
 from speechless.labeled_example import LabeledExample, LabeledSpectrogram, CachedLabeledSpectrogram, \
-    LabeledExampleFromFile
+    LabeledExampleFromFile, PositionalLabel
 from speechless.tools import group, paginate, mkdir, duplicates, log
 
 
@@ -81,7 +81,7 @@ class Corpus:
                 writer.writerow(
                     (e.id, str(e.audio_file.relative_to(
                         corpus_csv_file.parent) if use_relative_audio_file_paths else e.audio_file),
-                     e.label, phase.value))
+                     e.label, phase.value, e.positional_label.serialize() if e.positional_label else ""))
 
     @staticmethod
     def load(corpus_csv_file: Path,
@@ -96,8 +96,11 @@ class Corpus:
 
             examples = [
                 (
-                LabeledExampleFromFile(audio_file=to_absolute(Path(audio_file_path)), id=id, label=label), Phase[phase])
-                for id, audio_file_path, label, phase in reader]
+                    LabeledExampleFromFile(
+                        audio_file=to_absolute(Path(audio_file_path)), id=id, label=label,
+                        positional_label=None if positional_label == "" else PositionalLabel.deserialize(
+                            positional_label)), Phase[phase])
+                for id, audio_file_path, label, phase, positional_label in reader]
 
             return Corpus(training_examples=[e for e, phase in examples if phase == Phase.training],
                           test_examples=[e for e, phase in examples if phase == Phase.test],

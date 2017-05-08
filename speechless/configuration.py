@@ -6,6 +6,7 @@ from pathlib import Path
 # noinspection PyUnresolvedReferences
 import numpy
 from collections import OrderedDict
+from keras.optimizers import Adam
 from lazy import lazy
 from typing import List, Callable, Optional
 
@@ -102,10 +103,12 @@ class Configuration:
     def train_from_beginning(self):
         from speechless.net import Wav2Letter
 
-        wav2letter = Wav2Letter(self.mel_frequency_count, allowed_characters=self.allowed_characters)
+        wav2letter = Wav2Letter(self.mel_frequency_count, allowed_characters=self.allowed_characters,
+                                optimizer=Adam(1e-4, clipnorm=5.0))
 
-        self.train(wav2letter, run_name=timestamp() + "-adam-small-learning-rate-complete-training-{}{}".format(
-            self.name, self.sampled_training_example_count_extension()))
+        self.train(wav2letter,
+                   run_name=timestamp() + "-adam-small-learning-rate-complete-training-{}{}-clipnorm5".format(
+                       self.name, self.sampled_training_example_count_extension()))
 
     def summarize_and_save_corpus(self):
         log(self.corpus.summary())
@@ -226,12 +229,12 @@ class Configuration:
                                       freeze8tiny, freeze8tiny_1742, freeze8tiny_1716,
                                       german_small_from_beginning_day2hour15]
 
-    def test_german_model(self, load_name: str, load_epoch: int, use_ken_lm=True,
+    def test_german_model(self, load_name: str, load_epoch: int, use_ken_lm=False,
                           language_model_name_extension: str = ""):
         self.test_model_grouped_by_loaded_corpus_name(self.load_german_model(
             load_name, load_epoch, use_ken_lm=use_ken_lm, language_model_name_extension=language_model_name_extension))
 
-    def load_german_model(self, load_name: str, load_epoch: int, use_ken_lm=True,
+    def load_german_model(self, load_name: str, load_epoch: int, use_ken_lm=False,
                           language_model_name_extension: str = "") -> Wav2Letter:
         return self.load_model(
             load_name=load_name,
@@ -239,6 +242,12 @@ class Configuration:
             allowed_characters_for_loaded_model=german_frequent_characters,
             use_kenlm=use_ken_lm,
             language_model_name_extension=language_model_name_extension)
+
+    def load_best_german_model(self, use_ken_lm=False,
+                               language_model_name_extension: str = "") -> Wav2Letter:
+        return self.load_german_model(Configuration.freeze0day4hour7[0], Configuration.freeze0day4hour7[1],
+                                      use_ken_lm=use_ken_lm,
+                                      language_model_name_extension=language_model_name_extension)
 
 
 class LoggedRun:

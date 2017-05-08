@@ -9,7 +9,7 @@ from tarfile import TarFile, TarInfo
 
 from collections import Counter, OrderedDict
 from lazy import lazy
-from typing import Iterable, Optional, List, Callable, Tuple, Dict
+from typing import Iterable, Optional, List, Callable, Tuple, Dict, Union
 from urllib import request
 
 from speechless.corpus import Corpus, TrainingTestSplit, ComposedCorpus
@@ -84,12 +84,14 @@ class LibriSpeechCorpus(Corpus):
                 return correct_whitespace(self._remove_tags_to_ignore(label))
 
             original_positional_label = positional_label_by_id[id]
-            positional_label = original_positional_label.with_corrected_words(correct)
-
+            has_positions = isinstance(original_positional_label, PositionalLabel)
+            positional_label = original_positional_label.with_corrected_labels(correct).convert_range_to_seconds(
+                LabeledExampleFromFile.file_sample_rate(audio_file)) if has_positions else None
             return LabeledExampleFromFile(audio_file,
                                           mel_frequency_count=self.mel_frequency_count,
-                                          label=positional_label.label,
-                                          label_with_tags=original_positional_label.label,
+                                          label=positional_label.label if has_positions else correct(
+                                              original_positional_label),
+                                          label_with_tags=original_positional_label.label if has_positions else original_positional_label,
                                           positional_label=positional_label)
 
         self.examples_with_empty_and_too_long_or_short = [example(file) for file in audio_files if
@@ -157,7 +159,7 @@ class LibriSpeechCorpus(Corpus):
 
         return target_path
 
-    def _extract_positional_label_by_id(self, files: Iterable[Path]) -> Dict[str, PositionalLabel]:
+    def _extract_positional_label_by_id(self, files: Iterable[Path]) -> Dict[str, Union[PositionalLabel, str]]:
         label_files = [file for file in files if file.name.endswith(".txt")]
         positional_label_by_id = OrderedDict()
         for label_file in label_files:
@@ -166,7 +168,7 @@ class LibriSpeechCorpus(Corpus):
                     parts = line.split()
                     id = parts[0]
                     label = " ".join(parts[1:])
-                    positional_label_by_id[id] = PositionalLabel.without_positions(label.lower())
+                    positional_label_by_id[id] = label.lower()
         return positional_label_by_id
 
     def is_allowed(self, label: str) -> bool:
@@ -302,7 +304,7 @@ class LibriSpeechCorpus(Corpus):
 
     @lazy
     def examples_without_positional_labels(self):
-        return [e for e in self.examples if not e.positional_label.has_positions()]
+        return [e for e in self.examples if not e.positional_label]
 
 
 def dev_clean(base_directory: Path) -> LibriSpeechCorpus:

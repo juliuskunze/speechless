@@ -53,18 +53,19 @@ To download and train on the full 1000h LibriSpeech corpus, replace `mininal_eng
 
 `main.py` contains various other functions that were executed to train and use models.
 
+If you want completely flexible where data is saved and loaded from, 
+you should not use `Configuration` at all but instead use the code from `net`, `corpus`, `german_corpus`, `english_corpus` and `recording` directly.
+
 ## Loading
 
 By default, all trained models are stored in the `~/speechless-data/nets` directory. 
 You use models from [here](https://drive.google.com/drive/folders/0B0Azt-a50ylyal9JVDJnbXJJd2c?usp=sharing) by downloading them into this folder (keep the subfolder from Google Drive).
-To load a such a model use `load_model` or `load_german_model` e. g.
+To load a such a model use `load_best_english_model` or `load_best_german_model` e. g.
 
 ```python
 from speechless.configuration import Configuration
 
-german = Configuration.german()
-
-wav2letter = german.load_german_model(load_name="20170420-001258-adam-small-learning-rate-transfer-to-German-freeze-0", load_epoch=2066)
+wav2letter = Configuration.german().load_best_german_model()
 ```
 
 If the language was originally trained with a different character set (e. g. a corpus of another language),
@@ -101,3 +102,23 @@ Testing will write to the standard output and a log to `~/speechless-data/test-r
 ## Plotting
 
 Plotting labeled audio examples from the corpus like this one [here](https://docs.google.com/presentation/d/1X30IcB-CzCxnGt780ze0qOrbsRtDrxbWrZ_zQ91TOZQ/edit#slide=id.g1b9173e933_0_15) can be done with `LabeledExamplePlotter.save_spectrogram`.
+
+## German & Sections
+
+For some German datasets, it is possible to retrieve which word is said at which point of time, 
+allowing to extract labeled sections, e. g.:
+
+```python
+from speechless.configuration import Configuration
+
+german = Configuration.german()
+wav2letter = german.load_best_german_model()
+example = german.corpus.examples[0]
+sections = example.sections()
+for section in sections:
+    print(wav2letter.test_and_predict(section))
+```
+
+If you need to access the section labels only (e. g. for filtering for particular words), 
+use `example.positional_label.labels` (which is faster because no audio data needs to be sliced).
+If no positional info is available, `sections` and `positional_label` are `None`.
