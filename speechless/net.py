@@ -177,7 +177,7 @@ class Wav2Letter:
                                  format(allowed_characters, expected_characters))
 
         if load_model_from_directory is not None:
-            self._load_weights(
+            self.load_weights(
                 allowed_characters_for_loaded_model, load_epoch, load_model_from_directory,
                 loaded_first_layers_count=frozen_layer_count if reinitialize_trainable_loaded_layers else None)
 
@@ -206,8 +206,8 @@ class Wav2Letter:
 
         return character_mapping
 
-    def _load_weights(self, allowed_characters_for_loaded_model: List[chr], load_epoch: int,
-                      load_model_from_directory: Path, loaded_first_layers_count: Optional[int] = None):
+    def load_weights(self, allowed_characters_for_loaded_model: List[chr], load_epoch: int,
+                     load_model_from_directory: Path, loaded_first_layers_count: Optional[int] = None):
         if allowed_characters_for_loaded_model is None:
             self.predictive_net.load_weights(str(load_model_from_directory / self.model_file_name(load_epoch)))
         else:

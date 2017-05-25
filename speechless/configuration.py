@@ -6,7 +6,6 @@ from pathlib import Path
 # noinspection PyUnresolvedReferences
 import numpy
 from collections import OrderedDict
-from keras.optimizers import Adam
 from lazy import lazy
 from typing import List, Callable, Optional
 
@@ -16,7 +15,7 @@ from speechless.english_corpus import english_frequent_characters
 from speechless.german_corpus import german_corpus
 from speechless.german_corpus import german_frequent_characters
 from speechless.labeled_example import LabeledExampleFromFile
-from speechless.net import Wav2Letter
+from speechless.net import Wav2Letter, ExpectationsVsPredictionsInGroupedBatches
 from speechless.tools import home_directory, timestamp, log, mkdir, write_text, logger
 
 
@@ -29,6 +28,7 @@ class DataDirectories:
         self.nets_base_directory = data_directory / "nets"
         self.kenlm_base_directory = data_directory / "kenlm"
         self.recording_directory = data_directory / "recordings"
+        self.test_results_directory = data_directory / "test-results"
 
 
 default_data_directories = DataDirectories()
@@ -103,11 +103,10 @@ class Configuration:
     def train_from_beginning(self):
         from speechless.net import Wav2Letter
 
-        wav2letter = Wav2Letter(self.mel_frequency_count, allowed_characters=self.allowed_characters,
-                                optimizer=Adam(1e-4, clipnorm=5.0))
+        wav2letter = Wav2Letter(self.mel_frequency_count, allowed_characters=self.allowed_characters)
 
         self.train(wav2letter,
-                   run_name=timestamp() + "-adam-small-learning-rate-complete-training-{}{}-clipnorm5".format(
+                   run_name=timestamp() + "-adam-small-learning-rate-complete-training-{}{}".format(
                        self.name, self.sampled_training_example_count_extension()))
 
     def summarize_and_save_corpus(self):
@@ -125,16 +124,19 @@ class Configuration:
         log(wav2letter.test_and_predict_batch(self.batch_generator.preview_batch()))
         log(wav2letter.test_and_predict_batches(self.batch_generator.test_batches()))
 
-    def test_model_grouped_by_loaded_corpus_name(self, wav2letter):
+    def test_model_grouped_by_loaded_corpus_name(self, wav2letter) -> ExpectationsVsPredictionsInGroupedBatches:
         def corpus_name(example: LabeledExampleFromFile) -> str:
             return example.audio_directory.relative_to(self.corpus_directory).parts[0]
 
         corpus_by_name = self.corpus.grouped_by(corpus_name)
 
         log([(name, len(corpus.test_examples)) for name, corpus in corpus_by_name.items()])
-        log(wav2letter.test_and_predict_grouped_batches(OrderedDict(
+        result = wav2letter.test_and_predict_grouped_batches(OrderedDict(
             (corpus_name, self.batch_generator_for_corpus(corpus).test_batches()) for corpus_name, corpus in
-            corpus_by_name.items())))
+            corpus_by_name.items()))
+        log(result)
+
+        return result
 
     def train_transfer_from_best_english_model(self, frozen_layer_count: int,
                                                reinitialize_trainable_loaded_layers: bool = False):
@@ -180,7 +182,7 @@ class Configuration:
                                 use_ken_lm: bool = False,
                                 reinitialize_trainable_loaded_layers: bool = False):
         return self.load_model(
-            load_name="20170314-134351-adam-small-learning-rate-complete-95", load_epoch=1689,
+            load_name=Configuration.english_baseline[0], load_epoch=Configuration.english_baseline[1],
             frozen_layer_count=frozen_layer_count,
             use_kenlm=use_ken_lm,
             reinitialize_trainable_loaded_layers=reinitialize_trainable_loaded_layers)
@@ -188,46 +190,7 @@ class Configuration:
     def test_best_english_model(self, use_kenlm: bool = False):
         self.test_model_grouped_by_loaded_corpus_name(self.load_best_english_model(use_ken_lm=use_kenlm))
 
-    def load_best_english_model_trained_in_one_run(self):
-        return self.load_model(
-            load_name="20170316-180957-adam-small-learning-rate-complete-95", load_epoch=1192)
-
-    def test_best_english_model_trained_in_one_run(self):
-        self.test_model(self.load_best_english_model_trained_in_one_run())
-
-    freeze0day4hour7 = ("20170420-001258-adam-small-learning-rate-transfer-to-German-freeze-0", 2066)
-    german_from_beginning = ("20170415-001150-adam-small-learning-rate-complete-training-German", 443)
-
     english_baseline = ("20170314-134351-adam-small-learning-rate-complete-95", 1689)
-    english_correct_test_split = ("20170414-113509-adam-small-learning-rate-complete-training", 733)
-
-    freeze0 = ("20170420-001258-adam-small-learning-rate-transfer-to-German-freeze-0", 1704)
-    freeze6 = ("20170419-212024-adam-small-learning-rate-transfer-to-German-freeze-6", 1708)
-    freeze8 = ("20170418-120145-adam-small-learning-rate-transfer-to-German-freeze-8", 1759)
-    freeze9 = ("20170419-235043-adam-small-learning-rate-transfer-to-German-freeze-9", 1789)
-    freeze10 = ("20170415-092748-adam-small-learning-rate-transfer-to-German-freeze-10", 1778)
-
-    freeze8reinitialize = ("20170418-140152-adam-small-learning-rate-transfer-to-German-freeze-8-reinitialize", 1755)
-    freeze8small = ("20170420-174046-adam-small-learning-rate-transfer-to-German-freeze-8-50000examples", 1809)
-    freeze8small_15hours = ("20170420-174046-adam-small-learning-rate-transfer-to-German-freeze-8-50000examples", 1727)
-    freeze8small_20hours = ("20170420-174046-adam-small-learning-rate-transfer-to-German-freeze-8-50000examples", 1767)
-    freeze8small_40hours = ("20170420-174046-adam-small-learning-rate-transfer-to-German-freeze-8-50000examples", 1939)
-    freeze8small_50hours = ("20170420-174046-adam-small-learning-rate-transfer-to-German-freeze-8-50000examples", 2021)
-    freeze8tiny = ("20170424-231220-adam-small-learning-rate-transfer-to-German-freeze-8-10000examples", 1844)
-    freeze8tiny_1742 = ("20170424-231220-adam-small-learning-rate-transfer-to-German-freeze-8-10000examples", 1742)
-    freeze8tiny_1716 = ("20170424-231220-adam-small-learning-rate-transfer-to-German-freeze-8-10000examples", 1716)
-
-    german_small_from_beginning_day2hour15 = \
-        ("20170424-232706-adam-small-learning-rate-complete-training-German-50000examples", 237)
-    freeze8small_day2hour15 = \
-        ("20170420-174046-adam-small-learning-rate-transfer-to-German-freeze-8-50000examples", 2121)
-
-    german_model_names_with_epochs = [freeze0day4hour7, german_from_beginning, freeze0, freeze6, freeze8, freeze9,
-                                      freeze10, freeze8reinitialize,
-                                      freeze8small, freeze8small_15hours, freeze8small_20hours,
-                                      freeze8small_day2hour15, freeze8small_40hours, freeze8small_50hours,
-                                      freeze8tiny, freeze8tiny_1742, freeze8tiny_1716,
-                                      german_small_from_beginning_day2hour15]
 
     def test_german_model(self, load_name: str, load_epoch: int, use_ken_lm=False,
                           language_model_name_extension: str = ""):
@@ -243,16 +206,17 @@ class Configuration:
             use_kenlm=use_ken_lm,
             language_model_name_extension=language_model_name_extension)
 
+    freeze0day4hour7 = ("20170420-001258-adam-small-learning-rate-transfer-to-German-freeze-0", 2066)
+
     def load_best_german_model(self, use_ken_lm=False,
                                language_model_name_extension: str = "") -> Wav2Letter:
         return self.load_german_model(Configuration.freeze0day4hour7[0], Configuration.freeze0day4hour7[1],
                                       use_ken_lm=use_ken_lm,
                                       language_model_name_extension=language_model_name_extension)
 
-
 class LoggedRun:
     def __init__(self, action: Callable[[], None], name: str,
-                 results_directory: Path = default_data_directories.data_directory / "test-results"):
+                 results_directory: Path = default_data_directories.test_results_directory):
         self.action = action
         self.name = name
         self.results_directory = results_directory

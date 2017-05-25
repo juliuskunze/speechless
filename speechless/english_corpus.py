@@ -313,6 +313,7 @@ def dev_clean(base_directory: Path) -> LibriSpeechCorpus:
 
 
 def english_corpus(base_directory: Path) -> ComposedCorpus:
+    # test_other is excluded from the test set to allow comparison to wav2Letter paper
     return ComposedCorpus([
         dev_clean(base_directory),
         LibriSpeechCorpus(base_directory=base_directory, corpus_name="dev-other",
@@ -324,8 +325,6 @@ def english_corpus(base_directory: Path) -> ComposedCorpus:
         LibriSpeechCorpus(base_directory=base_directory, corpus_name="train-other-500",
                           training_test_split=TrainingTestSplit.training_only),
         LibriSpeechCorpus(base_directory=base_directory, corpus_name="test-clean",
-                          training_test_split=TrainingTestSplit.test_only),
-        LibriSpeechCorpus(base_directory=base_directory, corpus_name="test-other",
                           training_test_split=TrainingTestSplit.test_only)
     ])
 
