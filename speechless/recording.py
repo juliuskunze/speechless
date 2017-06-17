@@ -98,12 +98,13 @@ class Recorder:
 
 
 def record_plot_and_save(
+        recorder: Recorder = Recorder(),
         recording_directory: Path = configuration.default_data_directories.recording_directory) -> LabeledExample:
     from speechless.labeled_example_plotter import LabeledExamplePlotter
 
     mkdir(recording_directory)
     name = "recording-{}".format(timestamp())
-    example = Recorder().record_to_file(recording_directory / "{}.wav".format(name))
+    example = recorder.record_to_file(recording_directory / "{}.wav".format(name))
     LabeledExamplePlotter(example).save_spectrogram(recording_directory)
 
     return example
