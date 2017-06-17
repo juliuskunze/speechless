@@ -8,7 +8,7 @@ from speechless import configuration, german_corpus
 from speechless.configuration import Configuration, LoggedRun
 from speechless.german_corpus import german_frequent_characters
 from speechless.net import ExpectationsVsPredictionsInGroupedBatches
-from speechless.tools import log
+from speechless.tools import log, distinct
 
 
 def restrict_gpu_memory(per_process_gpu_memory_fraction: float = 0.9):
@@ -25,7 +25,7 @@ def restrict_gpu_memory(per_process_gpu_memory_fraction: float = 0.9):
 
 
 if __name__ == '__main__':
-    class OldRuns:
+    class SubmissionRuns:
         freeze0day4hour7 = ("20170420-001258-adam-small-learning-rate-transfer-to-German-freeze-0", 2066)
         german_from_beginning = ("20170415-001150-adam-small-learning-rate-complete-training-German", 443)
 
@@ -78,6 +78,12 @@ if __name__ == '__main__':
         english_elu_3000 = ("20170509-140404-adam-small-learning-rate-complete-training-English-elu", 3000)
 
 
+    class ValidationRuns:
+        freeze8 = ("20170525-181412-adam-small-learning-rate-transfer-to-German-freeze-8", 1924)
+        freeze8_100h = ("20170525-181449-adam-small-learning-rate-transfer-to-German-freeze-8-50000examples", 1966)
+        freeze8_20h = ("20170525-181524-adam-small-learning-rate-transfer-to-German-freeze-8-10000examples", 2033)
+
+
     if gethostname() == "ketos":
         ketos_spectrogram_cache_base_directory = configuration.default_data_directories.data_directory / "ketos-spectrogram-cache"
         ketos_kenlm_base_directory = configuration.default_data_directories.data_directory / "ketos-kenlm"
@@ -90,9 +96,17 @@ if __name__ == '__main__':
         restrict_gpu_memory()
 
 
-    # Configuration.german().train_transfer_from_best_english_model(frozen_layer_count=6)
-
     # Configuration.german().train_from_beginning()
+    # Configuration.german().train_transfer_from_best_english_model(frozen_layer_count=8, reinitialize_trainable_loaded_layers=True)
+    # Configuration.german().train_transfer_from_best_english_model(frozen_layer_count=0)
+    # Configuration.german().train_transfer_from_best_english_model(frozen_layer_count=6)
+    # Configuration.german().train_transfer_from_best_english_model(frozen_layer_count=9)
+    # Configuration.german().train_transfer_from_best_english_model(frozen_layer_count=10)
+
+
+    # Configuration.german().train_transfer_from_best_english_model(frozen_layer_count=8)
+    # Configuration.german(sampled_training_example_count_when_loading_from_cached=50000).train_transfer_from_best_english_model(frozen_layer_count=8)
+    # Configuration.german(sampled_training_example_count_when_loading_from_cached=10000).train_transfer_from_best_english_model(frozen_layer_count=8)
 
     # Configuration.german(from_cached=False).summarize_and_save_corpus()
 
@@ -106,8 +120,6 @@ if __name__ == '__main__':
 
     # net = Configuration.english().load_best_english_model().predictive_net
 
-    # Configuration.german(sampled_training_example_count_when_loading_from_cached=10000). \
-    #    train_transfer_from_best_english_model(frozen_layer_count=8)
 
     # Configuration.english().save_corpus()
 
@@ -160,44 +172,48 @@ if __name__ == '__main__':
 
         logged_runs = english_on_english_and_german(*Configuration.english_baseline) + [
             logged_german_run(model_name, epoch) for model_name, epoch in
-            OldRuns.german_model_names_with_epochs]
+            SubmissionRuns.german_model_names_with_epochs]
 
         logged_runs[index]()
 
 
-    # run(use_kenlm=False)  # language_model_name_extension="-incl-trans")
+    run(use_kenlm=True)  # language_model_name_extension="-incl-trans")
+
 
     def validate_to_csv(model_name: str, last_epoch: int,
                         configuration: Configuration = Configuration.german(),
-                        epoch_step: int = 5, first_epoch: int = 0,
+                        step_count=10, first_epoch: int = 0,
                         csv_directory: Path = configuration.default_data_directories.test_results_directory) -> List[
         Tuple[int, ExpectationsVsPredictionsInGroupedBatches]]:
 
-        epochs = list(range(first_epoch, last_epoch + 1, epoch_step))[1:]
+        step_size = (last_epoch - first_epoch) / (step_count - 1)
+
+        epochs = distinct(list(int(first_epoch + index * step_size) for index in range(step_count)))
         log("Testing model {} on epochs {}.".format(model_name, epochs))
 
         model = configuration.load_model(model_name, last_epoch,
                                          allowed_characters_for_loaded_model=configuration.allowed_characters,
-                                         use_kenlm=True)
+                                         use_kenlm=True,
+                                         language_model_name_extension="-incl-trans")
 
-        def result(epoch: int) -> Tuple[int, ExpectationsVsPredictionsInGroupedBatches]:
+        def get_result(epoch: int) -> ExpectationsVsPredictionsInGroupedBatches:
             log("Testing epoch {}.".format(epoch))
 
             model.load_weights(
                 allowed_characters_for_loaded_model=configuration.allowed_characters,
                 load_model_from_directory=configuration.directories.nets_base_directory / model_name, load_epoch=epoch)
 
-            results = configuration.test_model_grouped_by_loaded_corpus_name(model)
-            return epoch, results
+            return configuration.test_model_grouped_by_loaded_corpus_name(model)
 
-        results_with_epochs = [result(epoch) for epoch in epochs]
+        results_with_epochs = []
 
-        csv_file = csv_directory / "{}.csv".format(model_name)
+        csv_file = csv_directory / "{}.csv".format(model_name + "-incl-trans")
         import csv
         with csv_file.open('w', encoding='utf8') as opened_csv:
             writer = csv.writer(opened_csv, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
 
-            for epoch, result in results_with_epochs:
+            for epoch in epochs:
+                result = get_result(epoch)
                 writer.writerow((epoch, result.average_loss, result.average_letter_error_rate,
                                  result.average_word_error_rate, result.average_letter_error_count,
                                  result.average_word_error_count))
@@ -205,7 +221,8 @@ if __name__ == '__main__':
         return results_with_epochs
 
 
-    results = validate_to_csv(Configuration.english_baseline[0], 2000, configuration=Configuration.english(),
-                              epoch_step=1000)
+    model, max_epoch = ValidationRuns.freeze8_20h
+    first_epoch = 1689
+    # results = validate_to_csv(model, max_epoch, first_epoch=first_epoch, step_count=10)
 
-    print("Result: {}".format(results))
+    # print("Result: {}".format(results))
