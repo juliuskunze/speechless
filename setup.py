@@ -4,7 +4,7 @@ from pip.req import parse_requirements
 
 setup(
     name='speechless',
-    version='0.1',
+    version='0.1.1',
     packages=['speechless'],
     url='https://github.com/JuliusKunze/speechless',
     license='MIT License',
