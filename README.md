@@ -59,7 +59,7 @@ you should not use `Configuration` at all but instead use the code from `net`, `
 ## Loading
 
 By default, all trained models are stored in the `~/speechless-data/nets` directory. 
-You use models from [here](https://drive.google.com/drive/folders/0B0Azt-a50ylyal9JVDJnbXJJd2c?usp=sharing) by downloading them into this folder (keep the subfolder from Google Drive).
+You use models from [here](https://drive.google.com/drive/folders/0B0Azt-a50ylyal9JVDJnbXJJd2c?resourcekey=0-fVYtlyCyldcgeVdo_-OQ6A&usp=sharing) by downloading them into this folder (keep the subfolder from Google Drive).
 To load a such a model use `load_best_english_model` or `load_best_german_model` e. g.
 
 ```python
