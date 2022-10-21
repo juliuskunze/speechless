@@ -134,7 +134,29 @@ class LibriSpeechCorpus(Corpus):
     def _unpack_tar_if_not_yet_done(self, tar_file: Path, target_directory: Path):
         if not target_directory.is_dir():
             with tarfile.open(str(tar_file), 'r:gz') as tar:
-                tar.extractall(str(target_directory),
+                
+                import os
+                
+                def is_within_directory(directory, target):
+                    
+                    abs_directory = os.path.abspath(directory)
+                    abs_target = os.path.abspath(target)
+                
+                    prefix = os.path.commonprefix([abs_directory, abs_target])
+                    
+                    return prefix == abs_directory
+                
+                def safe_extract(tar, path=".", members=None, *, numeric_owner=False):
+                
+                    for member in tar.getmembers():
+                        member_path = os.path.join(path, member.name)
+                        if not is_within_directory(path, member_path):
+                            raise Exception("Attempted Path Traversal in Tar File")
+                
+                    tar.extractall(path, members, numeric_owner=numeric_owner) 
+                    
+                
+                safe_extract(tar, str(target_directory), members=self._tar_members_root_directory_skipped_if_specified(tar))
                                members=self._tar_members_root_directory_skipped_if_specified(tar))
 
     def _tar_members_root_directory_skipped_if_specified(self, tar: TarFile) -> List[TarInfo]:
