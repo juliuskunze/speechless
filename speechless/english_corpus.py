@@ -163,7 +163,7 @@ class LibriSpeechCorpus(Corpus):
         label_files = [file for file in files if file.name.endswith(".txt")]
         positional_label_by_id = OrderedDict()
         for label_file in label_files:
-            with label_file.open() as f:
+            with label_file.open(encoding='utf8') as f:
                 for line in f.readlines():
                     parts = line.split()
                     id = parts[0]
